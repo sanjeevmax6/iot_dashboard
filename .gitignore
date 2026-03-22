@@ -6,6 +6,8 @@ claude_logs/
 __pycache__/
 *.py[cod]
 .venv/
+.coverage
+.coverage.*
 
 # SQLite databases
 *.db
