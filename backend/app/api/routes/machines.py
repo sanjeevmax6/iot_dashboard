@@ -32,12 +32,14 @@ async def _machine_stats(machine_id: str, db: AsyncSession) -> MachineOut:
     )
 
 
+# Listing ll unique machines
 @router.get("", response_model=list[MachineOut])
 async def list_machines(db: AsyncSession = Depends(get_db)):
     machines = await db.scalars(select(Machine).order_by(Machine.machine_id))
     return [await _machine_stats(m.machine_id, db) for m in machines]
 
 
+# To get machine status: "Operational" or "Error"
 @router.get("/{machine_id}", response_model=MachineOut)
 async def get_machine(machine_id: str, db: AsyncSession = Depends(get_db)):
     return await _machine_stats(machine_id, db)
