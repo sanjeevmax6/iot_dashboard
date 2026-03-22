@@ -1,1 +1,3 @@
 .DS_Store
+claude_logs/
+.claude/settings.local.json
