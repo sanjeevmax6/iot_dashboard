@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
+# Going with a separate machines table following the normalization (3NF) principle with DBs and helps in latency for machine wise filtering
 class Machine(Base):
     __tablename__ = "machines"
 

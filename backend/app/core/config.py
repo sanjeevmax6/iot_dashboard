@@ -1,3 +1,4 @@
+# To unify all .env imports
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -5,6 +6,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Database
+    # Adding this with /// to adapt to current dir.
+    # TODO: enhancements to make runtime variable for deployment with AWS
     database_url: str = "sqlite+aiosqlite:///./iot_dashboard.db"
 
     # API
