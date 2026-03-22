@@ -1,8 +1,9 @@
 from typing import TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.graph import END, START, StateGraph
 
-from agent.llm import get_llm
+from backend.agent.llm_rerouter import get_llm
 from agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from agent.schemas import AnalysisOutput
 from agent.validator import validate_logic
@@ -54,8 +55,6 @@ def summarize(state: AnalysisState) -> AnalysisState:
 
 
 def build_graph():
-    from langgraph.graph import END, START, StateGraph
-
     g = StateGraph(AnalysisState)
     g.add_node("invoke_llm", invoke_llm)
     g.add_node("validate", validate)
