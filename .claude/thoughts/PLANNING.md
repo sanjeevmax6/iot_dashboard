@@ -183,21 +183,23 @@ iot_dashboard/
 │   │   │   └── analysis.py                # Strict Pydantic schema for LLM output
 │   │   ├── services/
 │   │   │   ├── ingestion.py               # CSV parse + bulk DB upsert
-│   │   │   ├── summarizer.py              # DB query → per-machine aggregate stats
-│   │   │   ├── ai_engine.py               # LLM factory (OpenAI/Bedrock via config)
-│   │   │   ├── validator.py               # Stage 1: Pydantic, Stage 2: logic checks
-│   │   │   └── workflow.py                # LangGraph graph definition + runner
+│   │   │   └── summarizer.py              # DB query → per-machine aggregate stats
 │   │   └── main.py                        # FastAPI app factory, CORS, lifespan
+│   ├── agent/                             # AI layer — no FastAPI/DB knowledge
+│   │   ├── __init__.py
+│   │   ├── workflow.py                    # LangGraph graph: entry point for the backend
+│   │   ├── llm.py                         # LangChain LLM factory (OpenAI/Bedrock)
+│   │   ├── validator.py                   # Stage 1: Pydantic schema, Stage 2: logic checks
+│   │   └── prompts.py                     # System + user prompt builders
 │   ├── tests/
 │   │   ├── conftest.py                    # Fixtures: in-memory DB, test client, mock LLM
 │   │   ├── test_ingestion.py              # Unit: CSV parsing, deduplication
 │   │   ├── test_summarizer.py             # Unit: aggregate stats calculation
-│   │   ├── test_validator.py              # Unit: all validation paths (20+ cases)
+│   │   ├── test_validator.py              # Unit: all agent validation paths (20+ cases)
 │   │   ├── test_workflow.py               # Unit: LangGraph graph with mocked LLM
 │   │   └── test_routes.py                 # Integration: all HTTP endpoints
 │   ├── .env.example
 │   ├── requirements.txt
-│   ├── requirements-dev.txt
 │   └── Dockerfile
 │
 ├── frontend/
@@ -292,9 +294,11 @@ class AnalysisState(TypedDict):
 
 ### Graph Nodes
 
+The `aggregate` step (DB query → summaries) happens in `app/services/summarizer.py` before the graph is invoked. The graph receives clean data and has no DB dependency.
+
 | Node | Input | Output | Failure Mode |
 |---|---|---|---|
-| `aggregate` | DB session | `machine_summaries` populated | DB error → propagate |
+| `call_llm` | `machine_summaries` + `validation_errors` | `llm_raw_response` | Network error → raise |
 | `call_llm` | `machine_summaries` + `validation_errors` | `llm_raw_response` | Network error → raise |
 | `validate` | `llm_raw_response` | `parsed_result` or `validation_errors` appended | Never raises — captures errors |
 | `persist` | `parsed_result` | `final_result`, written to DB | DB error → propagate |
@@ -534,16 +538,25 @@ ANALYSIS_RATE_LIMIT_SECONDS=30
 
 ### Phase 2 — AI Workflow
 ```
-2.1  [ ] services/summarizer.py (DB → per-machine stats dict)
-2.2  [ ] schemas/analysis.py (strict Pydantic schema for LLM output)
-2.3  [ ] services/validator.py (Stage 1 schema + Stage 2 logic checks)
-2.4  [ ] services/ai_engine.py (LangChain LLM factory, OpenAI + Bedrock)
-2.5  [ ] services/workflow.py (LangGraph graph with retry loop)
-2.6  [ ] POST /analysis/run (async background task)
-2.7  [ ] GET /analysis/status/{job_id} + GET /analysis/latest + GET /analysis/history
-2.8  [ ] test_validator.py (all 20+ validation paths)
-2.9  [ ] test_workflow.py (mocked LLM, retry paths)
-2.10 [ ] test_routes.py (analysis endpoints)
+-- app layer (talks to DB) --
+2.1  [ ] app/services/summarizer.py (DB → per-machine stats dict)
+2.2  [ ] app/schemas/analysis.py (strict Pydantic schema for LLM output)
+
+-- agent layer (no DB, no HTTP) --
+2.3  [ ] agent/prompts.py (system + user prompt builders, retry-aware)
+2.4  [ ] agent/llm.py (LangChain LLM factory, OpenAI + Bedrock via config)
+2.5  [ ] agent/validator.py (Stage 1: Pydantic schema, Stage 2: logic checks)
+2.6  [ ] agent/workflow.py (LangGraph graph: summarize → LLM → validate → retry)
+
+-- back to app layer --
+2.7  [ ] POST /analysis/run (calls summarizer → hands off to agent/workflow)
+2.8  [ ] GET /analysis/status/{job_id} + GET /analysis/latest + GET /analysis/history
+
+-- tests --
+2.9  [ ] test_summarizer.py (unit: aggregate stats)
+2.10 [ ] test_validator.py (unit: all 20+ validation paths, pure Python)
+2.11 [ ] test_workflow.py (unit: LangGraph with mocked LLM)
+2.12 [ ] test_routes.py (integration: analysis endpoints)
 ```
 
 ### Phase 3 — Frontend
