@@ -109,15 +109,11 @@ On failure: append the specific contradiction message to the next prompt iterati
 | `langgraph` | 0.2.x | AI workflow graph |
 | `python-multipart` | latest | File upload support |
 | `structlog` | latest | Structured JSON logging |
-
-### Backend Dev/Test
-| Package | Purpose |
-|---|---|
-| `pytest` + `pytest-asyncio` | Test runner |
-| `httpx` | Async test client for FastAPI |
-| `pytest-cov` | Coverage reporting |
-| `ruff` | Lint + format (replaces flake8/black/isort) |
-| `mypy` | Static type checking |
+| `pytest` + `pytest-asyncio` | latest | Test runner |
+| `httpx` | latest | Async test client for FastAPI |
+| `pytest-cov` | latest | Coverage reporting |
+| `ruff` | latest | Lint + format |
+| `mypy` | latest | Static type checking |
 
 ### Frontend
 | Package | Version | Purpose |
