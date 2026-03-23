@@ -2,9 +2,9 @@ from agent.schemas import AnalysisOutput, MachineRisk
 
 # risk_level → (min_score, max_score)
 RISK_SCORE_BOUNDS: dict[str, tuple[float, float]] = {
-    "high": (0.7, 1.0),
-    "medium": (0.3, 0.7),
-    "low": (0.0, 0.3),
+    "high": (0.70, 1.00),
+    "medium": (0.30, 0.69),
+    "low": (0.00, 0.29),
 }
 
 
