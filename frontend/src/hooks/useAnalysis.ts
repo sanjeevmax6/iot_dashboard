@@ -35,6 +35,7 @@ export function useRunAnalysis() {
       statusData?.status === "complete" ||
       statusData?.status === "error"
     ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setJobId(null);
       void queryClient.invalidateQueries({ queryKey: ["analysis", "latest"] });
     }
