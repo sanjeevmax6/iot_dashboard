@@ -59,6 +59,7 @@ export function Trends() {
   const { data: analysis, refetch: refetchAnalysis } = useLatestAnalysis();
 
   const onAnalysisComplete = () => {
+    setSelected(null);
     void queryClient.invalidateQueries({ queryKey: ["analysis", "latest"] });
     void refetchAnalysis();
   };

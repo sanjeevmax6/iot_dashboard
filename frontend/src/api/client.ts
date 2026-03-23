@@ -63,7 +63,7 @@ export const api = {
   },
 
   chat: {
-    stream: (body: { message: string; session_id: string; trigger_analysis?: boolean }) =>
+    stream: (body: { message: string; session_id: string; trigger_analysis?: boolean; requested_count?: number | null }) =>
       fetch(`${BASE}/analysis/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

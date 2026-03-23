@@ -21,12 +21,20 @@ Rules:
 """
 
 
-def build_user_prompt(summaries: list[dict], errors: list[str] | None = None) -> str:
-    n = min(settings.top_at_risk_count, len(summaries))
-    prompt = (
-        f"Analyze the following {len(summaries)} machine(s) and return the top {n} at-risk.\n\n"
-        f"Machine summaries:\n{json.dumps(summaries, indent=2, default=str)}"
-    )
+def build_user_prompt(
+    summaries: list[dict],
+    errors: list[str] | None = None,
+    top_n: int | None = None,
+) -> str:
+    if top_n is not None:
+        n = min(top_n, len(summaries))
+        opening = f"Analyze the following {len(summaries)} machine(s) and return the top {n} at-risk."
+    else:
+        opening = (
+            f"Analyze the following {len(summaries)} machine(s) and return ALL machines "
+            "that have meaningful risk, ranked highest first. Do not artificially limit the count."
+        )
+    prompt = f"{opening}\n\nMachine summaries:\n{json.dumps(summaries, indent=2, default=str)}"
     if errors:
         prompt += "\n\nYour previous response failed validation. Fix ALL of the following:\n"
         prompt += "\n".join(f"  - {e}" for e in errors)

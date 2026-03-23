@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str
     trigger_analysis: bool = False
+    requested_count: int | None = None  # None = use settings default; 0 = flexible (no count enforcement)
 
 
 @router.post("/chat/stream")
@@ -46,7 +47,16 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
                     yield f"data: {json.dumps({'type': 'error', 'message': 'No log data found. Ingest a CSV first.'})}\n\n"
                     return
 
-                state = await run_analysis(summaries)
+                # requested_count=None → use settings.top_at_risk_count (default)
+                # requested_count=0   → flexible mode, no count enforcement
+                # requested_count=N   → enforce exactly N
+                if body.requested_count is None:
+                    top_n: int | None = settings.top_at_risk_count
+                elif body.requested_count == 0:
+                    top_n = None
+                else:
+                    top_n = body.requested_count
+                state = await run_analysis(summaries, top_n=top_n)
 
                 if state["error_state"]:
                     yield f"data: {json.dumps({'type': 'error', 'message': state['error_state']})}\n\n"

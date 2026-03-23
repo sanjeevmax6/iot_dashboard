@@ -9,23 +9,29 @@ RISK_SCORE_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 
-def validate_logic(result: AnalysisOutput, valid_machine_ids: list[str]) -> list[str]:
+def validate_logic(
+    result: AnalysisOutput,
+    valid_machine_ids: list[str],
+    expected_count: int | None = settings.top_at_risk_count,
+) -> list[str]:
     """
     Stage 2 validation: logic contradiction checks.
+    Pass expected_count=None to skip count validation (structure-only mode).
     Returns a list of error strings. Empty list means valid.
     """
     errors: list[str] = []
     valid_set = set(valid_machine_ids)
-    expected_count = min(settings.top_at_risk_count, len(valid_machine_ids))
     actual_count = len(result.top_at_risk_machines)
 
-    # Check result count matches what was requested
-    if actual_count != expected_count:
-        errors.append(
-            f"Expected exactly {expected_count} machine(s) in top_at_risk_machines "
-            f"(top_at_risk_count={settings.top_at_risk_count}, available machines={len(valid_machine_ids)}), "
-            f"got {actual_count}."
-        )
+    # Count check — skipped when expected_count is None (chat/flexible mode)
+    if expected_count is not None:
+        capped = min(expected_count, len(valid_machine_ids))
+        if actual_count != capped:
+            errors.append(
+                f"Expected exactly {capped} machine(s) in top_at_risk_machines "
+                f"(requested={expected_count}, available={len(valid_machine_ids)}), "
+                f"got {actual_count}."
+            )
 
     # Check for duplicate machine IDs
     seen_ids: set[str] = set()

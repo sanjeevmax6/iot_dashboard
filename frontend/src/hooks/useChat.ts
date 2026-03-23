@@ -13,6 +13,15 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
+// Detect "top N" intent in a user message, e.g. "give me top 5", "top-3 machines", "show top 10"
+// Returns the requested count, 0 for "all", or null if no analysis intent found.
+function parseAnalysisIntent(text: string): number | null {
+  const topN = text.match(/\btop[\s-]?(\d+)\b/i);
+  if (topN) return parseInt(topN[1], 10);
+  if (/\b(all|every)\b.{0,30}\b(machine|at[\s-]?risk)\b/i.test(text)) return 0;
+  return null;
+}
+
 export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -22,11 +31,21 @@ export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
     async (text: string, triggerAnalysis = false) => {
       if (isStreaming) return;
 
+      // Detect "top N" / "all machines" intent in plain chat messages
+      let requestedCount: number | null | undefined;
+      if (!triggerAnalysis && text) {
+        const intent = parseAnalysisIntent(text);
+        if (intent !== null) {
+          triggerAnalysis = true;
+          requestedCount = intent === 0 ? 0 : intent;
+        }
+      }
+
       // Add user bubble
       const userMsg: ChatMessage = {
         id: uid(),
         role: "user",
-        content: triggerAnalysis ? "Analyze fleet health" : text,
+        content: triggerAnalysis && !text ? "Analyze fleet health" : text,
         thoughts: "",
         isStreaming: false,
       };
@@ -49,6 +68,7 @@ export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
           message: text,
           session_id: sessionId,
           trigger_analysis: triggerAnalysis,
+          requested_count: requestedCount,
         });
 
         const reader = response.body!.getReader();
