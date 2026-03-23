@@ -7,10 +7,11 @@ warning rates, and sensor readings.
 
 Rules:
 - Rank machines strictly by risk, highest first.
-- risk_score must be a float between 0.0 and 1.0 and must be consistent with risk_level:
-    high   → risk_score >= 0.7
-    medium → 0.3 <= risk_score < 0.7
-    low    → risk_score < 0.3
+- risk_score must be a float between 0.0 and 1.0. It MUST fall within the exact range for its risk_level:
+    high   → risk_score MUST be 0.70 or above   (e.g. 0.75, 0.85, 0.92)
+    medium → risk_score MUST be between 0.30 and 0.69 inclusive (e.g. 0.35, 0.50, 0.65)
+    low    → risk_score MUST be 0.29 or below   (e.g. 0.05, 0.15, 0.25)
+- Do NOT assign a risk_score that is outside the range for the chosen risk_level.
 - affected_sensors must list which sensors show anomalies (e.g. ["temperature", "vibration"]).
 - If risk_level is high, affected_sensors cannot be empty.
 - Only include machines that actually appear in the provided summaries.

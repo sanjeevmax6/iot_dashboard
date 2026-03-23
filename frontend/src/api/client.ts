@@ -62,6 +62,15 @@ export const api = {
     latest: () => get<AnalysisResult>("/analysis/latest"),
   },
 
+  chat: {
+    stream: (body: { message: string; session_id: string; trigger_analysis?: boolean }) =>
+      fetch(`${BASE}/analysis/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+  },
+
   data: {
     clear: () =>
       fetch(`${BASE}/data`, { method: "DELETE" }).then((r) => {
