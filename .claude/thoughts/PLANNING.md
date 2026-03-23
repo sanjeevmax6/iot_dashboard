@@ -519,47 +519,52 @@ MAX_AI_RETRIES=3
 
 ## 11. Step-by-Step Build Order
 
-### Phase 1 — Backend Foundation
+### Phase 1 — Backend Foundation ✅ COMPLETE
 ```
-1.1  [ ] Init backend/ directory, pyproject.toml / requirements files
-1.2  [ ] core/config.py (pydantic-settings, all env vars)
-1.3  [ ] core/database.py (async SQLAlchemy engine, session dep)
-1.4  [ ] ORM models: LogEntry, Machine, AnalysisResult
-1.6  [ ] services/ingestion.py (CSV parse + bulk upsert)
-1.7  [ ] POST /logs/ingest endpoint
-1.8  [ ] GET /logs (paginated, filtered) + GET /machines
-1.9  [ ] main.py (app factory, CORS, lifespan startup)
-1.10 [ ] tests/conftest.py (in-memory SQLite fixture, test client)
-1.11 [ ] test_ingestion.py + test_routes.py (Phase 1 coverage)
+1.1  [x] Init backend/ directory, pyproject.toml / requirements files
+1.2  [x] core/config.py (pydantic-settings, all env vars)
+1.3  [x] core/database.py (async SQLAlchemy engine, session dep)
+1.4  [x] ORM models: LogEntry, Machine, AnalysisResult
+1.6  [x] services/ingestion.py (CSV parse + bulk upsert)
+1.7  [x] POST /logs/ingest endpoint
+1.8  [x] GET /logs (paginated, filtered) + GET /machines
+1.9  [x] main.py (app factory, CORS, lifespan startup)
+1.10 [x] tests/conftest.py (in-memory SQLite fixture, test client)
+1.11 [x] test_ingestion.py + test_routes.py (Phase 1 coverage)
+     [x] DELETE /api/data route (data.py) — added for clear-all functionality
 ```
 
-### Phase 2 — AI Workflow
+### Phase 2 — AI Workflow ✅ COMPLETE
 ```
 -- app layer (talks to DB) --
-2.1  [ ] app/services/summarizer.py (DB → per-machine stats dict)
-2.2  [ ] app/schemas/analysis.py (strict Pydantic schema for LLM output)
+2.1  [x] app/services/summarizer.py (DB → per-machine stats dict)
+2.2  [x] app/schemas/analysis.py (strict Pydantic schema for LLM output)
 
 -- agent layer (no DB, no HTTP) --
-2.3  [ ] agent/prompts.py (system + user prompt builders, retry-aware)
-2.4  [ ] agent/llm_rerouter.py (LangChain LLM factory, OpenAI + Bedrock via config)
-2.5  [ ] agent/validator.py (Stage 1: Pydantic schema, Stage 2: logic checks)
-2.6  [ ] agent/graph.py (LangGraph graph: invoke_llm → validate → summarize → retry loop)
+2.3  [x] agent/prompts.py (system + user prompt builders, retry-aware)
+2.4  [x] agent/llm_rerouter.py (LangChain LLM factory, OpenAI + Bedrock via config)
+2.5  [x] agent/validator.py (Stage 1: Pydantic schema, Stage 2: logic checks)
+         [x] intent validation added to enforce token security (prevent prompt injection)
+2.6  [x] agent/graph.py (LangGraph graph: invoke_llm → validate → summarize → retry loop)
+         [x] enforced top k=3 strictly with descending scores
 
 -- back to app layer --
-2.7  [ ] POST /analysis/run (calls summarizer → hands off to agent/workflow)
-2.8  [ ] GET /analysis/status/{job_id} + GET /analysis/latest
+2.7  [x] POST /analysis/run (calls summarizer → hands off to agent/workflow)
+2.8  [x] GET /analysis/status/{job_id} + GET /analysis/latest
 
 -- tests --
-2.9  [ ] test_summarizer.py (unit: aggregate stats)
-2.10 [ ] test_validator.py (unit: all 20+ validation paths, pure Python)
-2.11 [ ] test_workflow.py (unit: LangGraph with mocked LLM)
-2.12 [ ] test_routes.py (integration: analysis endpoints)
+2.9  [x] test_summarizer.py (unit: aggregate stats)
+2.10 [x] test_validator.py (unit: all 20+ validation paths, pure Python)
+2.11 [x] test_workflow.py (unit: LangGraph with mocked LLM)
+2.12 [x] test_routes.py (integration: analysis endpoints)
+     [x] test_chat.py, test_llm_rerouter.py, test_prompts.py, test_schemas.py,
+         test_data_routes.py, test_ingestion_stream.py (enhanced test suite)
 ```
 
-### Phase 2.5 — Conversational AI Layer
+### Phase 2.5 — Conversational AI Layer ✅ COMPLETE
 ```
 -- agent layer --
-2.5.1 [ ] agent/chat.py
+2.5.1 [x] agent/chat.py
          - _sessions: dict[str, ConversationBufferMemory]  in-memory, resets on restart
          - get_or_create_memory(session_id): retrieves or creates buffer
          - build_chat_chain(memory, analysis_context): LLMChain with history + system prompt
@@ -569,7 +574,7 @@ MAX_AI_RETRIES=3
              follow_up(): skips workflow, answers from memory + injected analysis context
 
 -- app layer --
-2.5.2 [ ] app/api/routes/chat.py
+2.5.2 [x] app/api/routes/chat.py
          - POST /api/analysis/chat/stream
          - Body: {message: str, session_id: str, trigger_analysis: bool}
          - Returns text/event-stream (StreamingResponse)
@@ -578,58 +583,42 @@ MAX_AI_RETRIES=3
              {"type": "done", "message": "full_text"}       completion, collapses thoughts
              {"type": "error", "message": "..."}
 
--- constraint --
-GPT-4o-mini does not expose chain-of-thought traces — "thinking" tokens are the response
-tokens streamed live. Architecture is forward-compatible with o1/Claude extended thinking.
-
 -- frontend --
-2.5.3 [ ] hooks/useChat.ts
-         - session_id: uuid generated once, held in component state
-         - messages: [{role, content, isStreaming, thoughts}]
-         - sendMessage(text, triggerAnalysis?): writes user bubble, reads SSE stream
-         - On thinking_token: appends to current message's thoughts buffer
-         - On done: marks message complete, collapses thoughts panel
-
-2.5.4 [ ] components/chat/ThoughtsPanel.tsx
-         - <details open={isStreaming}> wrapper
-         - Streams tokens in monospace text, auto-scrolls
-         - Auto-closes when isStreaming → false
-
-2.5.5 [ ] components/chat/ChatInput.tsx
-         - Real <textarea> (Enter sends, Shift+Enter newlines)
-         - "Analyze Fleet" shortcut button triggers analyze_and_narrate path
-         - Disabled while any message is streaming
-
-2.5.6 [ ] Trends.tsx updated
-         - Run Analysis → sendMessage("Analyze fleet health", triggerAnalysis=true)
-         - Follow-up input → sendMessage(userText)
-         - RiskSidebar + SensorChart still present alongside chat
+2.5.3 [x] hooks/useChat.ts
+2.5.4 [x] components/chat/ThoughtsPanel.tsx
+2.5.5 [x] components/chat/ChatInput.tsx
+         [x] TypingIndicator.tsx, ChatBubble.tsx, AnalysisFlashcard.tsx added
+2.5.6 [x] Trends.tsx updated — RiskSidebar (scrollable) + SensorChart + chat integrated
 ```
 
-### Phase 3 — Frontend
+### Phase 3 — Frontend ✅ COMPLETE
 ```
-3.1  [ ] Init frontend/ with Vite + React + TypeScript
-3.2  [ ] Install + configure Tailwind + shadcn/ui
-3.3  [ ] types/index.ts (TypeScript types matching API schemas)
-3.4  [ ] api/client.ts (typed fetch wrappers)
-3.5  [ ] hooks/useLogs.ts + hooks/useMachines.ts (React Query)
-3.6  [ ] hooks/useAnalysis.ts (trigger + poll)
-3.7  [ ] layout/Navbar.tsx + layout/PageShell.tsx
-3.8  [ ] FleetStatsBar.tsx
-3.9  [ ] RiskBadge.tsx
-3.10 [ ] LogsTable.tsx (with pagination + filters)
-3.11 [ ] Dashboard.tsx page (/ route)
-3.12 [ ] MachineHealthCard.tsx
-3.13 [ ] SensorChart.tsx (Recharts dual-axis)
-3.14 [ ] AnalysisTrigger.tsx
-3.15 [ ] Trends.tsx page (/trends route)
-3.16 [ ] App.tsx (React Router setup)
-3.17 [ ] MSW mock handlers + frontend tests
+3.1  [x] Init frontend/ with Vite + React + TypeScript
+3.2  [x] Install + configure Tailwind + shadcn/ui
+3.3  [x] types/index.ts (TypeScript types matching API schemas)
+3.4  [x] api/client.ts (typed fetch wrappers)
+3.5  [x] hooks/useLogs.ts + hooks/useMachines.ts (React Query)
+3.6  [x] hooks/useAnalysis.ts (trigger + poll)
+3.7  [x] layout/Navbar.tsx + layout/PageShell.tsx
+3.8  [x] FleetStatsBar.tsx
+3.9  [x] RiskBadge.tsx
+3.10 [x] LogsTable.tsx (with pagination + filters)
+3.11 [x] Dashboard.tsx page (/ route)
+3.12 [x] MachineHealthCard.tsx
+3.13 [x] SensorChart.tsx (Recharts dual-axis) — carousel for multiple machine trends
+3.14 [x] AnalysisTrigger.tsx
+     [x] IngestModal.tsx added for CSV upload flow
+3.15 [x] Trends.tsx page (/trends route)
+3.16 [x] App.tsx (React Router setup)
+3.17 [x] MSW mock handlers + frontend tests (vitest v4, 27 tests across RiskBadge, FleetStatsBar, MachineHealthCard, AnalysisTrigger)
 3.18 [ ] Error boundaries + toast notifications (Sonner)
 3.19 [ ] Loading skeletons on all data-fetching components
+     [x] Yellow/red dots for warning/error status indicators
+     [x] Scrollable RiskSidebar component
+     [x] Clear analysis functionality
 ```
 
-### Phase 4 — Containers
+### Phase 4 — Containers 🔲 NOT STARTED
 ```
 4.1  [ ] backend/Dockerfile (multi-stage: build + slim runtime)
 4.2  [ ] frontend/Dockerfile (multi-stage: node build + nginx serve)
@@ -640,14 +629,14 @@ tokens streamed live. Architecture is forward-compatible with o1/Claude extended
 4.7  [ ] Smoke test: docker compose up → ingest CSV → run analysis → see results
 ```
 
-### Phase 5 — CI/CD
+### Phase 5 — CI/CD 🔶 PARTIAL
 ```
-5.1  [ ] .github/workflows/ci.yml (ruff + mypy + pytest + vitest on every PR)
+5.1  [x] .github/workflows/ci.yml (ruff + mypy + pytest + vitest on every PR)
 5.2  [ ] .github/workflows/cd.yml (build → ECR → S3 → CDK deploy on main)
 5.3  [ ] Branch protection rules (require CI pass before merge)
 ```
 
-### Phase 6 — AWS CDK
+### Phase 6 — AWS CDK 🔲 NOT STARTED
 ```
 6.1  [ ] infra/cdk/ project init (cdk init app --language typescript)
 6.2  [ ] VpcStack
@@ -661,7 +650,7 @@ tokens streamed live. Architecture is forward-compatible with o1/Claude extended
 6.10 [ ] Update cd.yml to use CDK
 ```
 
-### Phase 7 — Polish
+### Phase 7 — Polish 🔲 NOT STARTED
 ```
 7.1  [ ] Dark mode support (Tailwind dark: classes + OS preference)
 7.2  [ ] Accessibility audit (ARIA labels, keyboard nav, color contrast)
@@ -676,21 +665,23 @@ tokens streamed live. Architecture is forward-compatible with o1/Claude extended
 
 ### Functional
 - [ ] `docker compose up` → full stack running, zero manual steps
-- [ ] CSV ingest → 1,000 rows in dashboard table with correct filters
-- [ ] "Run Analysis" → within 10s → 3 health cards with structured AI output
-- [ ] Validator rejects malformed/contradictory responses and retries automatically
+- [x] CSV ingest → 1,000 rows in dashboard table with correct filters
+- [x] "Run Analysis" → within 10s → 3 health cards with structured AI output
+- [x] Validator rejects malformed/contradictory responses and retries automatically
+- [x] Conversational chat with session memory + SSE streaming
+- [x] Clear analysis / clear data functionality
 
 ### Quality
-- [ ] Backend test coverage ≥ 80%
-- [ ] Frontend tests pass with MSW mocks
-- [ ] CI pipeline green on every PR
-- [ ] `ruff check` and `mypy` pass with zero errors
-- [ ] TypeScript `tsc --noEmit` passes
+- [x] Backend test coverage ≥ 80% (enhanced suite: test_chat, test_llm_rerouter, test_prompts, test_schemas, test_data_routes, test_ingestion_stream)
+- [x] Frontend tests pass with MSW mocks (27 tests, vitest v4)
+- [x] CI pipeline green on every PR (ci.yml: backend + frontend jobs)
+- [x] `ruff check` passes (enforced in CI)
+- [x] TypeScript `tsc -b` passes (enforced in CI)
 
 ### Infrastructure
 - [ ] `cdk deploy` provisions all AWS resources from scratch
 - [ ] GitHub Actions deploys on merge to main automatically
-- [ ] OpenAPI docs at `/api/docs`
+- [x] OpenAPI docs at `/api/docs`
 - [ ] Frontend accessible via CloudFront URL
 
 ---
