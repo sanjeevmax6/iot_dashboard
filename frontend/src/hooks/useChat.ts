@@ -13,7 +13,7 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
-export function useChat(sessionId: string) {
+export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -85,6 +85,7 @@ export function useChat(sessionId: string) {
                     : m
                 )
               );
+              if (triggerAnalysis) onAnalysisComplete?.();
             } else if (event.type === "error") {
               setMessages((prev) =>
                 prev.map((m) =>

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.chat import narrate_analysis, stream_chat
 from agent.schemas import AnalysisOutput
 from app.api.deps import get_db
+from app.core.config import settings
 from app.models.analysis_result import AnalysisResult
 
 router = APIRouter(prefix="/analysis", tags=["chat"])
@@ -52,6 +54,22 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
 
                 nonlocal analysis
                 analysis = state["parsed_result"]
+
+                # Persist to DB so useLatestAnalysis can pick it up
+                db_record = AnalysisResult(
+                    status="complete",
+                    result_json=analysis.model_dump_json(),
+                    retry_count=state["retry_count"],
+                    model_used=(
+                        settings.openai_model
+                        if settings.llm_provider == "openai"
+                        else settings.bedrock_model_id
+                    ),
+                    provider=settings.llm_provider,
+                    completed_at=datetime.now(timezone.utc),
+                )
+                analysis_db.add(db_record)
+                await analysis_db.commit()
 
             async for event in narrate_analysis(body.session_id, analysis):
                 yield f"data: {json.dumps(event)}\n\n"

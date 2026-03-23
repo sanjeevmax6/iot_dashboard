@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bot } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { SensorChart } from "@/components/SensorChart";
@@ -55,8 +56,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 }
 
 export function Trends() {
-  const { data: analysis } = useLatestAnalysis();
-  const { messages, isStreaming, sendMessage } = useChat(SESSION_ID);
+  const queryClient = useQueryClient();
+  const { data: analysis, refetch: refetchAnalysis } = useLatestAnalysis();
+
+  const onAnalysisComplete = () => {
+    void queryClient.invalidateQueries({ queryKey: ["analysis", "latest"] });
+    void refetchAnalysis();
+  };
+
+  const { messages, isStreaming, sendMessage } = useChat(SESSION_ID, onAnalysisComplete);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [selected, setSelected] = useState<string | null>(null);
