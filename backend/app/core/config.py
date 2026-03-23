@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # AI Workflow
     max_ai_retries: int = 3
     analysis_rate_limit_seconds: int = 30
+    top_at_risk_count: int = 3
 
 
 settings = Settings()

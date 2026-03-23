@@ -1,28 +1,37 @@
 from agent.schemas import AnalysisOutput, MachineRisk
+from app.core.config import settings
 
 # risk_level → (min_score, max_score)
 RISK_SCORE_BOUNDS: dict[str, tuple[float, float]] = {
-    "high": (0.7, 1.0),
-    "medium": (0.3, 0.7),
-    "low": (0.0, 0.3),
+    "high": (0.70, 1.00),
+    "medium": (0.30, 0.69),
+    "low": (0.00, 0.29),
 }
 
 
-def validate_logic(result: AnalysisOutput, valid_machine_ids: list[str]) -> list[str]:
+def validate_logic(
+    result: AnalysisOutput,
+    valid_machine_ids: list[str],
+    expected_count: int | None = settings.top_at_risk_count,
+) -> list[str]:
     """
     Stage 2 validation: logic contradiction checks.
+    Pass expected_count=None to skip count validation (structure-only mode).
     Returns a list of error strings. Empty list means valid.
     """
     errors: list[str] = []
     valid_set = set(valid_machine_ids)
-    expected_count = min(3, len(valid_machine_ids))
-
-    # Check result count
     actual_count = len(result.top_at_risk_machines)
-    if actual_count != expected_count:
-        errors.append(
-            f"Expected exactly {expected_count} machine(s) in top_at_risk_machines, got {actual_count}."
-        )
+
+    # Count check — skipped when expected_count is None (chat/flexible mode)
+    if expected_count is not None:
+        capped = min(expected_count, len(valid_machine_ids))
+        if actual_count != capped:
+            errors.append(
+                f"Expected exactly {capped} machine(s) in top_at_risk_machines "
+                f"(requested={expected_count}, available={len(valid_machine_ids)}), "
+                f"got {actual_count}."
+            )
 
     # Check for duplicate machine IDs
     seen_ids: set[str] = set()

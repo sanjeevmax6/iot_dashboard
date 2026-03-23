@@ -1,16 +1,32 @@
+import json
 import math
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.models.log_entry import LogEntry
 from app.schemas.log_entry import LogsPage
-from app.services.ingestion import IngestionError, ingest_csv
+from app.services.ingestion import IngestionError, ingest_csv, ingest_csv_stream
 
 router = APIRouter(prefix="/logs", tags=["logs"])
+
+
+@router.post("/ingest/stream")
+async def ingest_logs_stream(file: UploadFile, db: AsyncSession = Depends(get_db)):
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
+
+    content = await file.read()
+
+    async def generate():
+        async for event in ingest_csv_stream(content, db):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.post("/ingest", status_code=status.HTTP_200_OK)

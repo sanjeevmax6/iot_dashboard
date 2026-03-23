@@ -17,13 +17,14 @@ class AnalysisState(TypedDict):
     validation_errors: list[str]
     retry_count: int
     error_state: str | None
+    top_n: int | None  # None = flexible mode: validate structure only, no count enforcement
 
 
 def invoke_llm(state: AnalysisState) -> AnalysisState:
     llm = get_llm().with_structured_output(AnalysisOutput)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=build_user_prompt(state["machine_summaries"], state["validation_errors"])),
+        HumanMessage(content=build_user_prompt(state["machine_summaries"], state["validation_errors"], top_n=state["top_n"])),
     ]
     try:
         result = llm.invoke(messages)
@@ -41,7 +42,7 @@ def validate(state: AnalysisState) -> AnalysisState:
     if state["parsed_result"] is None:
         return state  # errors already set by invoke_llm
 
-    errors = validate_logic(state["parsed_result"], state["valid_machine_ids"])
+    errors = validate_logic(state["parsed_result"], state["valid_machine_ids"], expected_count=state["top_n"])
     if errors:
         return {**state, "parsed_result": None, "validation_errors": errors}
     return {**state, "validation_errors": []}
@@ -75,7 +76,10 @@ def build_graph():
 _graph = build_graph()
 
 
-async def run_analysis(machine_summaries: list[dict]) -> AnalysisState:
+async def run_analysis(
+    machine_summaries: list[dict],
+    top_n: int | None = settings.top_at_risk_count,
+) -> AnalysisState:
     initial: AnalysisState = {
         "machine_summaries": machine_summaries,
         "valid_machine_ids": [m["machine_id"] for m in machine_summaries],
@@ -83,5 +87,6 @@ async def run_analysis(machine_summaries: list[dict]) -> AnalysisState:
         "validation_errors": [],
         "retry_count": 0,
         "error_state": None,
+        "top_n": top_n,
     }
     return await _graph.ainvoke(initial)

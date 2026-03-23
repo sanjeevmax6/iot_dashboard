@@ -54,16 +54,16 @@ LangGraph is the right tool here because the core AI workflow is a **state machi
 ```
 [START]
    ↓
-[aggregate]     — query DB, build per-machine stats dict
-   ↓
-[call_llm]      — invoke model with system prompt + summaries
+[invoke_llm]    — invoke model with system prompt + summaries
    ↓
 [validate]      — Pydantic schema check + logic contradiction check
    ↓
-[router] ──── valid ────→ [persist] → [END]
-    └──── invalid & retry_count < 3 ──→ [regenerate] → [validate] (loop)
-    └──── exhausted retries ──────────→ [error_state] → [END]
+[lambda router] ── valid ──────────────────────→ [summarize] → [END]
+                └── invalid & retries remain ──→ [invoke_llm] (loop)
+                └── retries exhausted ─────────→ [summarize] → [END]
 ```
+
+The `summarize` node handles both success and failure: if `validation_errors` is non-empty it sets `error_state`, otherwise it passes through cleanly. The router is an inline lambda — no separate named function.
 
 Without LangGraph you hand-roll this as nested try/except with a counter. With LangGraph:
 - State is typed (`TypedDict`)
@@ -107,6 +107,7 @@ On failure: append the specific contradiction message to the next prompt iterati
 | `langchain-openai` | 0.2.x | OpenAI provider |
 | `langchain-aws` | 0.2.x | Bedrock provider |
 | `langgraph` | 0.2.x | AI workflow graph |
+| `langchain-community` | 0.3.x | ConversationBufferMemory |
 | `python-multipart` | latest | File upload support |
 | `structlog` | latest | Structured JSON logging |
 | `pytest` + `pytest-asyncio` | latest | Test runner |
@@ -169,7 +170,7 @@ iot_dashboard/
 │   │   │   └── routes/
 │   │   │       ├── logs.py                # POST /logs/ingest, GET /logs
 │   │   │       ├── machines.py            # GET /machines, GET /machines/{id}
-│   │   │       └── analysis.py            # POST /analysis/run, GET /analysis/latest, GET /analysis/history
+│   │   │       └── analysis.py            # POST /analysis/run, GET /analysis/status/{id}, GET /analysis/latest
 │   │   ├── core/
 │   │   │   ├── config.py                  # pydantic-settings: all env vars
 │   │   │   └── database.py                # SQLAlchemy async engine + session factory
@@ -187,9 +188,11 @@ iot_dashboard/
 │   │   └── main.py                        # FastAPI app factory, CORS, lifespan
 │   ├── agent/                             # AI layer — no FastAPI/DB knowledge
 │   │   ├── __init__.py
-│   │   ├── workflow.py                    # LangGraph graph: entry point for the backend
-│   │   ├── llm.py                         # LangChain LLM factory (OpenAI/Bedrock)
-│   │   ├── validator.py                   # Stage 1: Pydantic schema, Stage 2: logic checks
+│   │   ├── graph.py                       # LangGraph graph: invoke_llm → validate → summarize
+│   │   ├── chat.py                        # Conversational agent: memory sessions + streaming
+│   │   ├── llm_rerouter.py                # LangChain LLM factory (OpenAI/Bedrock)
+│   │   ├── schemas.py                     # Pydantic: MachineRisk, AnalysisOutput
+│   │   │   ├── validator.py                   # Logic contradiction checks (Stage 2)
 │   │   └── prompts.py                     # System + user prompt builders
 │   ├── tests/
 │   │   ├── conftest.py                    # Fixtures: in-memory DB, test client, mock LLM
@@ -284,12 +287,11 @@ iot_dashboard/
 ```python
 class AnalysisState(TypedDict):
     machine_summaries: list[dict]      # Input: per-machine aggregated stats
-    llm_raw_response: str              # Raw LLM output string
-    parsed_result: dict | None         # Parsed JSON (if schema passes)
+    valid_machine_ids: list[str]       # Derived from summaries; used by validator
+    parsed_result: AnalysisOutput | None  # Structured output (if validation passes)
     validation_errors: list[str]       # Collected validation failure messages
-    retry_count: int                   # Current retry attempt (0-indexed)
-    final_result: dict | None          # Output: stored to DB if successful
-    error_state: str | None            # Set if all retries exhausted
+    retry_count: int                   # Incremented by invoke_llm on each attempt
+    error_state: str | None            # Set by summarize node on exhausted retries
 ```
 
 ### Graph Nodes
@@ -298,22 +300,15 @@ The `aggregate` step (DB query → summaries) happens in `app/services/summarize
 
 | Node | Input | Output | Failure Mode |
 |---|---|---|---|
-| `call_llm` | `machine_summaries` + `validation_errors` | `llm_raw_response` | Network error → raise |
-| `call_llm` | `machine_summaries` + `validation_errors` | `llm_raw_response` | Network error → raise |
-| `validate` | `llm_raw_response` | `parsed_result` or `validation_errors` appended | Never raises — captures errors |
-| `persist` | `parsed_result` | `final_result`, written to DB | DB error → propagate |
-| `error_state` | exhausted retries | `error_state` message | — |
+| `invoke_llm` | `machine_summaries` + `validation_errors` | `parsed_result`, increments `retry_count` | Exception caught → appended to `validation_errors` |
+| `validate` | `parsed_result` | clears or appends `validation_errors` | Never raises — captures errors as strings |
+| `summarize` | full state | sets `error_state` if errors remain, passes through on success | — |
 
 ### Conditional Router
 
 ```python
-def route_after_validate(state: AnalysisState) -> str:
-    if state["parsed_result"] is not None:
-        return "persist"
-    elif state["retry_count"] < settings.MAX_AI_RETRIES:
-        return "call_llm"       # Loop back with accumulated errors in prompt
-    else:
-        return "error_state"
+# Inline lambda at add_conditional_edges — no separate function
+lambda state: "retry" if state["validation_errors"] and state["retry_count"] < settings.max_ai_retries else "summarize"
 ```
 
 ### Prompt Strategy
@@ -346,7 +341,11 @@ GET   /api/machines/{machine_id}    Single machine detail + recent logs
 POST  /api/analysis/run             Trigger LangGraph workflow (async, returns job_id)
 GET   /api/analysis/status/{job_id} Poll job status (pending | running | complete | error)
 GET   /api/analysis/latest          Most recent successful analysis result
-GET   /api/analysis/history         Paginated list of all past analyses
+
+POST  /api/analysis/chat/stream     Conversational agent (SSE stream)
+                                    Body: {message, session_id, trigger_analysis?}
+                                    Events: thinking_token | done | error
+DELETE /api/data                    Wipe all logs, machines, analysis results
 ```
 
 ### Key Response Schemas
@@ -491,7 +490,6 @@ LOG_LEVEL=INFO
 
 # AI Workflow
 MAX_AI_RETRIES=3
-ANALYSIS_RATE_LIMIT_SECONDS=30
 ```
 
 ---
@@ -505,9 +503,8 @@ ANALYSIS_RATE_LIMIT_SECONDS=30
 | `services/ingestion.py` | Unit | valid CSV, missing columns, duplicate rows, empty file |
 | `services/summarizer.py` | Unit | correct aggregation math, handles machines with zero events |
 | `services/validator.py` | Unit | valid pass, missing fields, wrong type, score/level contradiction, empty sensors + high risk, unknown machine_id, non-descending scores |
-| `services/workflow.py` | Unit (mocked LLM) | happy path, 1 retry, 3 retries → error state, LLM network error |
+| `agent/graph.py` | Unit (mocked LLM) | happy path, 1 retry, 3 retries → error state, LLM network error |
 | `api/routes/logs.py` | Integration | ingest 200, ingest bad CSV 422, GET with pagination, GET with filters |
-| `api/routes/analysis.py` | Integration | trigger run, poll status, get latest, history pagination |
 
 ### Frontend Coverage Targets
 
@@ -544,19 +541,69 @@ ANALYSIS_RATE_LIMIT_SECONDS=30
 
 -- agent layer (no DB, no HTTP) --
 2.3  [ ] agent/prompts.py (system + user prompt builders, retry-aware)
-2.4  [ ] agent/llm.py (LangChain LLM factory, OpenAI + Bedrock via config)
+2.4  [ ] agent/llm_rerouter.py (LangChain LLM factory, OpenAI + Bedrock via config)
 2.5  [ ] agent/validator.py (Stage 1: Pydantic schema, Stage 2: logic checks)
-2.6  [ ] agent/workflow.py (LangGraph graph: summarize → LLM → validate → retry)
+2.6  [ ] agent/graph.py (LangGraph graph: invoke_llm → validate → summarize → retry loop)
 
 -- back to app layer --
 2.7  [ ] POST /analysis/run (calls summarizer → hands off to agent/workflow)
-2.8  [ ] GET /analysis/status/{job_id} + GET /analysis/latest + GET /analysis/history
+2.8  [ ] GET /analysis/status/{job_id} + GET /analysis/latest
 
 -- tests --
 2.9  [ ] test_summarizer.py (unit: aggregate stats)
 2.10 [ ] test_validator.py (unit: all 20+ validation paths, pure Python)
 2.11 [ ] test_workflow.py (unit: LangGraph with mocked LLM)
 2.12 [ ] test_routes.py (integration: analysis endpoints)
+```
+
+### Phase 2.5 — Conversational AI Layer
+```
+-- agent layer --
+2.5.1 [ ] agent/chat.py
+         - _sessions: dict[str, ConversationBufferMemory]  in-memory, resets on restart
+         - get_or_create_memory(session_id): retrieves or creates buffer
+         - build_chat_chain(memory, analysis_context): LLMChain with history + system prompt
+         - stream_chat(): async generator → yields SSE dicts
+         - Two entry paths:
+             analyze_and_narrate(): runs run_analysis() first, then narrates result conversationally
+             follow_up(): skips workflow, answers from memory + injected analysis context
+
+-- app layer --
+2.5.2 [ ] app/api/routes/chat.py
+         - POST /api/analysis/chat/stream
+         - Body: {message: str, session_id: str, trigger_analysis: bool}
+         - Returns text/event-stream (StreamingResponse)
+         - SSE events:
+             {"type": "thinking_token", "content": "..."}   streamed LLM tokens
+             {"type": "done", "message": "full_text"}       completion, collapses thoughts
+             {"type": "error", "message": "..."}
+
+-- constraint --
+GPT-4o-mini does not expose chain-of-thought traces — "thinking" tokens are the response
+tokens streamed live. Architecture is forward-compatible with o1/Claude extended thinking.
+
+-- frontend --
+2.5.3 [ ] hooks/useChat.ts
+         - session_id: uuid generated once, held in component state
+         - messages: [{role, content, isStreaming, thoughts}]
+         - sendMessage(text, triggerAnalysis?): writes user bubble, reads SSE stream
+         - On thinking_token: appends to current message's thoughts buffer
+         - On done: marks message complete, collapses thoughts panel
+
+2.5.4 [ ] components/chat/ThoughtsPanel.tsx
+         - <details open={isStreaming}> wrapper
+         - Streams tokens in monospace text, auto-scrolls
+         - Auto-closes when isStreaming → false
+
+2.5.5 [ ] components/chat/ChatInput.tsx
+         - Real <textarea> (Enter sends, Shift+Enter newlines)
+         - "Analyze Fleet" shortcut button triggers analyze_and_narrate path
+         - Disabled while any message is streaming
+
+2.5.6 [ ] Trends.tsx updated
+         - Run Analysis → sendMessage("Analyze fleet health", triggerAnalysis=true)
+         - Follow-up input → sendMessage(userText)
+         - RiskSidebar + SensorChart still present alongside chat
 ```
 
 ### Phase 3 — Frontend
@@ -618,7 +665,6 @@ ANALYSIS_RATE_LIMIT_SECONDS=30
 ```
 7.1  [ ] Dark mode support (Tailwind dark: classes + OS preference)
 7.2  [ ] Accessibility audit (ARIA labels, keyboard nav, color contrast)
-7.3  [ ] Rate limiting on POST /analysis/run (in-memory, 30s cooldown)
 7.4  [ ] Structured logging (structlog → JSON in prod, pretty in dev)
 7.5  [ ] README_AI.md (prompts used, AI errors, manual fixes)
 7.6  [ ] Final README.md review
@@ -633,7 +679,6 @@ ANALYSIS_RATE_LIMIT_SECONDS=30
 - [ ] CSV ingest → 1,000 rows in dashboard table with correct filters
 - [ ] "Run Analysis" → within 10s → 3 health cards with structured AI output
 - [ ] Validator rejects malformed/contradictory responses and retries automatically
-- [ ] Analysis history shows all past runs with timestamps
 
 ### Quality
 - [ ] Backend test coverage ≥ 80%
