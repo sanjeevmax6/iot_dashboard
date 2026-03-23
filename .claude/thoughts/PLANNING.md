@@ -107,6 +107,7 @@ On failure: append the specific contradiction message to the next prompt iterati
 | `langchain-openai` | 0.2.x | OpenAI provider |
 | `langchain-aws` | 0.2.x | Bedrock provider |
 | `langgraph` | 0.2.x | AI workflow graph |
+| `langchain-community` | 0.3.x | ConversationBufferMemory |
 | `python-multipart` | latest | File upload support |
 | `structlog` | latest | Structured JSON logging |
 | `pytest` + `pytest-asyncio` | latest | Test runner |
@@ -188,6 +189,7 @@ iot_dashboard/
 │   ├── agent/                             # AI layer — no FastAPI/DB knowledge
 │   │   ├── __init__.py
 │   │   ├── graph.py                       # LangGraph graph: invoke_llm → validate → summarize
+│   │   ├── chat.py                        # Conversational agent: memory sessions + streaming
 │   │   ├── llm_rerouter.py                # LangChain LLM factory (OpenAI/Bedrock)
 │   │   ├── schemas.py                     # Pydantic: MachineRisk, AnalysisOutput
 │   │   │   ├── validator.py                   # Logic contradiction checks (Stage 2)
@@ -339,6 +341,11 @@ GET   /api/machines/{machine_id}    Single machine detail + recent logs
 POST  /api/analysis/run             Trigger LangGraph workflow (async, returns job_id)
 GET   /api/analysis/status/{job_id} Poll job status (pending | running | complete | error)
 GET   /api/analysis/latest          Most recent successful analysis result
+
+POST  /api/analysis/chat/stream     Conversational agent (SSE stream)
+                                    Body: {message, session_id, trigger_analysis?}
+                                    Events: thinking_token | done | error
+DELETE /api/data                    Wipe all logs, machines, analysis results
 ```
 
 ### Key Response Schemas
@@ -547,6 +554,56 @@ MAX_AI_RETRIES=3
 2.10 [ ] test_validator.py (unit: all 20+ validation paths, pure Python)
 2.11 [ ] test_workflow.py (unit: LangGraph with mocked LLM)
 2.12 [ ] test_routes.py (integration: analysis endpoints)
+```
+
+### Phase 2.5 — Conversational AI Layer
+```
+-- agent layer --
+2.5.1 [ ] agent/chat.py
+         - _sessions: dict[str, ConversationBufferMemory]  in-memory, resets on restart
+         - get_or_create_memory(session_id): retrieves or creates buffer
+         - build_chat_chain(memory, analysis_context): LLMChain with history + system prompt
+         - stream_chat(): async generator → yields SSE dicts
+         - Two entry paths:
+             analyze_and_narrate(): runs run_analysis() first, then narrates result conversationally
+             follow_up(): skips workflow, answers from memory + injected analysis context
+
+-- app layer --
+2.5.2 [ ] app/api/routes/chat.py
+         - POST /api/analysis/chat/stream
+         - Body: {message: str, session_id: str, trigger_analysis: bool}
+         - Returns text/event-stream (StreamingResponse)
+         - SSE events:
+             {"type": "thinking_token", "content": "..."}   streamed LLM tokens
+             {"type": "done", "message": "full_text"}       completion, collapses thoughts
+             {"type": "error", "message": "..."}
+
+-- constraint --
+GPT-4o-mini does not expose chain-of-thought traces — "thinking" tokens are the response
+tokens streamed live. Architecture is forward-compatible with o1/Claude extended thinking.
+
+-- frontend --
+2.5.3 [ ] hooks/useChat.ts
+         - session_id: uuid generated once, held in component state
+         - messages: [{role, content, isStreaming, thoughts}]
+         - sendMessage(text, triggerAnalysis?): writes user bubble, reads SSE stream
+         - On thinking_token: appends to current message's thoughts buffer
+         - On done: marks message complete, collapses thoughts panel
+
+2.5.4 [ ] components/chat/ThoughtsPanel.tsx
+         - <details open={isStreaming}> wrapper
+         - Streams tokens in monospace text, auto-scrolls
+         - Auto-closes when isStreaming → false
+
+2.5.5 [ ] components/chat/ChatInput.tsx
+         - Real <textarea> (Enter sends, Shift+Enter newlines)
+         - "Analyze Fleet" shortcut button triggers analyze_and_narrate path
+         - Disabled while any message is streaming
+
+2.5.6 [ ] Trends.tsx updated
+         - Run Analysis → sendMessage("Analyze fleet health", triggerAnalysis=true)
+         - Follow-up input → sendMessage(userText)
+         - RiskSidebar + SensorChart still present alongside chat
 ```
 
 ### Phase 3 — Frontend
