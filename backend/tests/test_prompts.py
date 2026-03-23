@@ -9,7 +9,7 @@ SUMMARIES = [
 
 
 def test_build_user_prompt_includes_machine_count():
-    prompt = build_user_prompt(SUMMARIES)
+    prompt = build_user_prompt(SUMMARIES, top_n=3)
     assert "4 machine(s)" in prompt
     assert "top 3" in prompt
 
@@ -39,13 +39,21 @@ def test_build_user_prompt_empty_errors_list_omits_section():
 
 
 def test_build_user_prompt_fewer_than_3_machines():
-    prompt = build_user_prompt([{"machine_id": "MCH-01"}])
+    prompt = build_user_prompt([{"machine_id": "MCH-01"}], top_n=1)
     assert "top 1" in prompt
 
 
 def test_build_user_prompt_exactly_3_machines():
-    prompt = build_user_prompt(SUMMARIES[:3])
+    prompt = build_user_prompt(SUMMARIES[:3], top_n=3)
     assert "top 3" in prompt
+
+
+def test_build_user_prompt_flexible_mode():
+    # No top_n → flexible mode, should not constrain count
+    prompt = build_user_prompt(SUMMARIES)
+    assert "4 machine(s)" in prompt
+    assert "ALL machines" in prompt
+    assert "top" not in prompt
 
 
 def test_system_prompt_contains_risk_rules():
