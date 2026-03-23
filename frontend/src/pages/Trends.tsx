@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Bot } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { SensorChart } from "@/components/SensorChart";
-import { AnalysisFlashcard } from "@/components/chat/AnalysisFlashcard";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { RiskSidebar } from "@/components/chat/RiskSidebar";
 import { ThoughtsPanel } from "@/components/chat/ThoughtsPanel";
@@ -71,6 +70,7 @@ export function Trends() {
 
   const hasMessages = messages.length > 0;
   const machines = extractMachinesFromAnalysis(analysis?.top_at_risk_machines);
+  const hasContent = hasMessages || machines.length > 0;
   const topMachineId = selected ?? machines[0]?.machine_id ?? null;
 
   const { data: logsData } = useLogs({
@@ -91,7 +91,7 @@ export function Trends() {
     <div
       className={cn(
         "transition-all duration-500 ease-in-out px-6",
-        hasMessages
+        hasContent
           ? "py-6 max-w-7xl mx-auto"
           : "flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)]"
       )}
@@ -99,14 +99,14 @@ export function Trends() {
       <div
         className={cn(
           "flex gap-6 w-full transition-all duration-500",
-          hasMessages ? "items-start" : "justify-center"
+          hasContent ? "items-start" : "justify-center"
         )}
       >
         {/* Chat column */}
         <div
           className={cn(
             "flex flex-col transition-all duration-500",
-            hasMessages ? "flex-1 min-w-0" : "w-full max-w-2xl"
+            hasContent ? "flex-1 min-w-0" : "w-full max-w-2xl"
           )}
         >
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden flex flex-col">
@@ -148,33 +148,13 @@ export function Trends() {
               </div>
             )}
 
-            {/* Flashcards for prior results (shown only when no messages yet) */}
-            {!hasMessages && analysis?.top_at_risk_machines && (
-              <div className="flex flex-col gap-4 px-5 pb-5">
-                {analysis.fleet_summary && (
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-gray-900 flex items-center justify-center shrink-0 mt-0.5">
-                      <Bot className="w-3.5 h-3.5 text-white" />
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700">
-                      {analysis.fleet_summary}
-                    </div>
-                  </div>
-                )}
-                {analysis.top_at_risk_machines.map((m, i) => (
-                  <div key={m.machine_id} className="pl-9">
-                    <AnalysisFlashcard machine={m} index={i} />
-                  </div>
-                ))}
-              </div>
-            )}
-
             <ChatInput
               onSend={(text) => sendMessage(text, false)}
               onAnalyze={() => sendMessage("", true)}
               isStreaming={isStreaming}
             />
           </div>
+
         </div>
 
         {/* Risk sidebar */}
