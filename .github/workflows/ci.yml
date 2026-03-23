@@ -38,4 +38,8 @@ jobs:
         run: ruff check .
 
       - name: Run tests with coverage
-        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=80
+        run: pytest --cov=app --cov=agent --cov-report=term-missing --cov-fail-under=80
+        env:
+          PYTHONPATH: .
+          LLM_PROVIDER: openai
+          OPENAI_API_KEY: dummy
