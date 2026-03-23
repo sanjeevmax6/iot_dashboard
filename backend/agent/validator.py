@@ -1,4 +1,5 @@
 from agent.schemas import AnalysisOutput, MachineRisk
+from app.core.config import settings
 
 # risk_level → (min_score, max_score)
 RISK_SCORE_BOUNDS: dict[str, tuple[float, float]] = {
@@ -15,13 +16,15 @@ def validate_logic(result: AnalysisOutput, valid_machine_ids: list[str]) -> list
     """
     errors: list[str] = []
     valid_set = set(valid_machine_ids)
-    expected_count = min(3, len(valid_machine_ids))
-
-    # Check result count
+    expected_count = min(settings.top_at_risk_count, len(valid_machine_ids))
     actual_count = len(result.top_at_risk_machines)
+
+    # Check result count matches what was requested
     if actual_count != expected_count:
         errors.append(
-            f"Expected exactly {expected_count} machine(s) in top_at_risk_machines, got {actual_count}."
+            f"Expected exactly {expected_count} machine(s) in top_at_risk_machines "
+            f"(top_at_risk_count={settings.top_at_risk_count}, available machines={len(valid_machine_ids)}), "
+            f"got {actual_count}."
         )
 
     # Check for duplicate machine IDs

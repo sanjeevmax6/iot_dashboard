@@ -1,5 +1,7 @@
 import json
 
+from app.core.config import settings
+
 SYSTEM_PROMPT = """\
 You are an industrial equipment risk analyst. You will be given telemetry summaries \
 for a fleet of machines and must identify the top at-risk machines based on error rates, \
@@ -20,7 +22,7 @@ Rules:
 
 
 def build_user_prompt(summaries: list[dict], errors: list[str] | None = None) -> str:
-    n = min(3, len(summaries))
+    n = min(settings.top_at_risk_count, len(summaries))
     prompt = (
         f"Analyze the following {len(summaries)} machine(s) and return the top {n} at-risk.\n\n"
         f"Machine summaries:\n{json.dumps(summaries, indent=2, default=str)}"
