@@ -1,8 +1,10 @@
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
 
 from agent.schemas import AnalysisOutput, MachineRisk
+from app.models.analysis_result import AnalysisResult
 
 VALID_CSV = b"""timestamp,machine_id,temperature,vibration,status
 2026-03-01T00:00:00,MCH-01,75.0,0.5,OPERATIONAL
@@ -173,5 +175,48 @@ async def test_get_status_not_found(client):
 async def test_get_latest_no_results(client):
     resp = await client.get("/api/analysis/latest")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_status_existing_record(client, db_session):
+    record = AnalysisResult(
+        status="complete",
+        result_json=MOCK_ANALYSIS_OUTPUT.model_dump_json(),
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(record)
+    await db_session.commit()
+    await db_session.refresh(record)
+
+    resp = await client.get(f"/api/analysis/status/{record.id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "complete"
+    assert body["fleet_summary"] == "Fleet needs attention."
+
+
+@pytest.mark.asyncio
+async def test_get_latest_with_result(client, db_session):
+    record = AnalysisResult(
+        status="complete",
+        result_json=MOCK_ANALYSIS_OUTPUT.model_dump_json(),
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(record)
+    await db_session.commit()
+
+    resp = await client.get("/api/analysis/latest")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fleet_summary"] == "Fleet needs attention."
+    assert len(body["top_at_risk_machines"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_logs_filter_by_timestamp(client):
+    await client.post("/api/logs/ingest", files={"file": ("data.csv", VALID_CSV, "text/csv")})
+    resp = await client.get("/api/logs?from=2026-03-01T00:08:00&to=2026-03-01T00:15:00")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
 
 
