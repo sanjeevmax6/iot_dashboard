@@ -58,6 +58,9 @@ export function Trends() {
   const queryClient = useQueryClient();
   const { data: analysis, refetch: refetchAnalysis } = useLatestAnalysis();
 
+  const [selected, setSelected] = useState<string | null>(null);
+  const [cleared, setCleared] = useState(false);
+
   const onAnalysisComplete = () => {
     setSelected(null);
     setCleared(false);
@@ -67,9 +70,6 @@ export function Trends() {
 
   const { messages, isStreaming, sendMessage } = useChat(SESSION_ID, onAnalysisComplete);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const [selected, setSelected] = useState<string | null>(null);
-  const [cleared, setCleared] = useState(false);
 
   const hasMessages = messages.length > 0;
   const machines = cleared ? [] : extractMachinesFromAnalysis(analysis?.top_at_risk_machines);
