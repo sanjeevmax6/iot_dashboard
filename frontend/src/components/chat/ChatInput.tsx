@@ -1,14 +1,16 @@
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface Props {
   onSend: (text: string) => void;
   onAnalyze: () => void;
+  onClearAnalysis?: () => void;
+  hasAnalysis?: boolean;
   isStreaming: boolean;
 }
 
-export function ChatInput({ onSend, onAnalyze, isStreaming }: Props) {
+export function ChatInput({ onSend, onAnalyze, onClearAnalysis, hasAnalysis, isStreaming }: Props) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -64,19 +66,37 @@ export function ChatInput({ onSend, onAnalyze, isStreaming }: Props) {
         </button>
       </div>
 
-      <button
-        onClick={onAnalyze}
-        disabled={isStreaming}
-        className={cn(
-          "flex items-center justify-center gap-1.5 w-full py-1.5 rounded-xl text-xs font-medium transition-colors border",
-          isStreaming
-            ? "border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed"
-            : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+      <div className="flex items-center justify-center gap-2">
+        <button
+          onClick={onAnalyze}
+          disabled={isStreaming}
+          className={cn(
+            "flex items-center justify-center gap-1.5 w-[38%] py-1.5 rounded-xl text-xs font-medium transition-colors border",
+            isStreaming
+              ? "border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed"
+              : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          {isStreaming ? "Analyzing fleet…" : "Analyze fleet health"}
+        </button>
+
+        {hasAnalysis && (
+          <button
+            onClick={onClearAnalysis}
+            disabled={isStreaming}
+            className={cn(
+              "flex items-center justify-center gap-1.5 w-[38%] py-1.5 rounded-xl text-xs font-medium transition-colors border",
+              isStreaming
+                ? "border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed"
+                : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+            )}
+          >
+            <X className="w-3.5 h-3.5" />
+            Clear analysis
+          </button>
         )}
-      >
-        <Sparkles className="w-3.5 h-3.5" />
-        {isStreaming ? "Analyzing fleet…" : "Analyze fleet health"}
-      </button>
+      </div>
     </div>
   );
 }

@@ -60,6 +60,7 @@ export function Trends() {
 
   const onAnalysisComplete = () => {
     setSelected(null);
+    setCleared(false);
     void queryClient.invalidateQueries({ queryKey: ["analysis", "latest"] });
     void refetchAnalysis();
   };
@@ -68,9 +69,10 @@ export function Trends() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [selected, setSelected] = useState<string | null>(null);
+  const [cleared, setCleared] = useState(false);
 
   const hasMessages = messages.length > 0;
-  const machines = extractMachinesFromAnalysis(analysis?.top_at_risk_machines);
+  const machines = cleared ? [] : extractMachinesFromAnalysis(analysis?.top_at_risk_machines);
   const hasContent = hasMessages || machines.length > 0;
   const topMachineId = selected ?? machines[0]?.machine_id ?? null;
 
@@ -152,6 +154,8 @@ export function Trends() {
             <ChatInput
               onSend={(text) => sendMessage(text, false)}
               onAnalyze={() => sendMessage("", true)}
+              onClearAnalysis={() => { setCleared(true); setSelected(null); }}
+              hasAnalysis={!cleared && machines.length > 0}
               isStreaming={isStreaming}
             />
           </div>
