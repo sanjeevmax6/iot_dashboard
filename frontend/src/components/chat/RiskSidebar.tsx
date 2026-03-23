@@ -16,10 +16,11 @@ interface Props {
 
 export function RiskSidebar({ machines, selected, onSelect }: Props) {
   return (
-    <div className="w-64 shrink-0 flex flex-col gap-3 animate-slide-in-right" style={{ opacity: 0 }}>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-1">
+    <div className="w-64 shrink-0 flex flex-col gap-3 animate-slide-in-right max-h-[calc(60vh+theme(spacing.20))]" style={{ opacity: 0 }}>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-1 shrink-0">
         Top at-risk
       </p>
+      <div className="flex flex-col gap-3 overflow-y-auto pr-1">
       {machines.map((m) => (
         <button
           key={m.machine_id}
@@ -47,6 +48,7 @@ export function RiskSidebar({ machines, selected, onSelect }: Props) {
           <p className="text-xs text-gray-500 line-clamp-2">{m.reason}</p>
         </button>
       ))}
+      </div>
     </div>
   );
 }
