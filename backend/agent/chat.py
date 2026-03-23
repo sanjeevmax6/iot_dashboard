@@ -16,10 +16,39 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from agent.llm_rerouter import get_llm
+from agent.prompts import INTENT_GUARD_PROMPT
 from agent.schemas import AnalysisOutput
+
+# ── Intent guard ─────────────────────────────────────────────────────────────
+
+REFUSAL_MESSAGE = (
+    "I can only help with questions about your fleet and machine data. "
+    "Try clicking **Analyze fleet health** to run a fresh analysis, "
+    "or ask me about a specific machine, sensor reading, or risk score."
+)
+
+
+async def classify_intent(user_message: str) -> bool:
+    """
+    Returns True if the message is on-topic (fleet/machine domain).
+    Returns False if it is off-topic and should be refused.
+    Fails open on error — better to answer an off-topic question
+    than to incorrectly refuse a legitimate one.
+    """
+    llm = get_llm()
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=INTENT_GUARD_PROMPT),
+            HumanMessage(content=user_message),
+        ])
+        return response.content.strip().upper() == "ON_TOPIC"
+    except Exception:
+        return True
+
 
 # ── Session store ────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.chat import narrate_analysis, stream_chat
+from agent.chat import REFUSAL_MESSAGE, classify_intent, narrate_analysis, stream_chat
 from agent.schemas import AnalysisOutput
 from app.api.deps import get_db
 from app.core.config import settings
@@ -84,6 +84,9 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
             async for event in narrate_analysis(body.session_id, analysis):
                 yield f"data: {json.dumps(event)}\n\n"
         else:
+            if not await classify_intent(body.message):
+                yield f"data: {json.dumps({'type': 'done', 'message': REFUSAL_MESSAGE})}\n\n"
+                return
             async for event in stream_chat(body.session_id, body.message, analysis):
                 yield f"data: {json.dumps(event)}\n\n"
 
