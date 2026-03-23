@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
-from agent.graph import run_analysis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.graph import run_analysis
 from agent.schemas import AnalysisOutput
 from app.api.deps import get_db
 from app.core.config import settings
