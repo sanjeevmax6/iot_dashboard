@@ -11,6 +11,23 @@ import {
 import { formatDate } from "@/lib/utils";
 import type { LogEntry } from "@/types";
 
+interface DotProps {
+  cx?: number;
+  cy?: number;
+  payload?: { status: string };
+}
+
+function StatusDot({ cx, cy, payload }: DotProps) {
+  if (!cx || !cy || !payload) return null;
+  if (payload.status === "ERROR") {
+    return <circle cx={cx} cy={cy} r={3.5} fill="#ef4444" stroke="white" strokeWidth={1.5} />;
+  }
+  if (payload.status === "WARNING") {
+    return <circle cx={cx} cy={cy} r={3.5} fill="#f59e0b" stroke="white" strokeWidth={1.5} />;
+  }
+  return null;
+}
+
 interface Props {
   logs: LogEntry[];
   machineId: string;
@@ -71,7 +88,8 @@ export function SensorChart({ logs, machineId }: Props) {
           dataKey="temperature"
           stroke="#3b82f6"
           strokeWidth={1.5}
-          dot={false}
+          dot={<StatusDot />}
+          activeDot={{ r: 4 }}
           name="Temperature (°C)"
         />
         <Line
@@ -80,7 +98,8 @@ export function SensorChart({ logs, machineId }: Props) {
           dataKey="vibration"
           stroke="#f59e0b"
           strokeWidth={1.5}
-          dot={false}
+          dot={<StatusDot />}
+          activeDot={{ r: 4 }}
           name="Vibration"
         />
       </LineChart>

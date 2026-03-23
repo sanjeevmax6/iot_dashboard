@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bot } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { SensorChart } from "@/components/SensorChart";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -167,15 +167,45 @@ export function Trends() {
         )}
       </div>
 
-      {/* Sensor chart */}
-      {topMachineId && (hasMessages || analysis?.top_at_risk_machines) && (
-        <div className="mt-6 bg-white rounded-2xl border border-gray-200 p-5 animate-fade-in" style={{ opacity: 0 }}>
-          <p className="text-sm font-semibold text-gray-700 mb-4">
-            {topMachineId} — Sensor Trends
-          </p>
-          <SensorChart logs={logsData?.items ?? []} machineId={topMachineId} />
-        </div>
-      )}
+      {/* Sensor chart carousel */}
+      {machines.length > 0 && topMachineId && (() => {
+        const activeIndex = Math.max(0, machines.findIndex(m => m.machine_id === topMachineId));
+        const handlePrev = () => setSelected(machines[(activeIndex - 1 + machines.length) % machines.length].machine_id);
+        const handleNext = () => setSelected(machines[(activeIndex + 1) % machines.length].machine_id);
+        return (
+          <div className="mt-6 bg-white rounded-2xl border border-gray-200 p-5 animate-fade-in" style={{ opacity: 0 }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-700">{topMachineId} — Sensor Trends</p>
+                <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-3">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Error</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />Warning</span>
+                </p>
+              </div>
+              {machines.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <button onClick={handlePrev} className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+                    <ChevronLeft className="w-4 h-4 text-gray-500" />
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {machines.map((m, i) => (
+                      <button
+                        key={m.machine_id}
+                        onClick={() => setSelected(m.machine_id)}
+                        className={cn("w-1.5 h-1.5 rounded-full transition-colors", i === activeIndex ? "bg-gray-900" : "bg-gray-300")}
+                      />
+                    ))}
+                  </div>
+                  <button onClick={handleNext} className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+              )}
+            </div>
+            <SensorChart logs={logsData?.items ?? []} machineId={topMachineId} />
+          </div>
+        );
+      })()}
     </div>
   );
 }
