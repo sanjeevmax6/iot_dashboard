@@ -41,7 +41,7 @@ export class EcsStack extends cdk.Stack {
     const cluster = new ecs.Cluster(this, "Cluster", {
       vpc,
       clusterName: "iot-dashboard",
-      containerInsights: true,
+      containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
 
     // IAM roles
