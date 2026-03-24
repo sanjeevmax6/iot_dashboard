@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
@@ -38,8 +39,8 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       <div className="flex-1 min-w-0">
         <ThoughtsPanel thoughts={msg.thoughts} isStreaming={msg.isStreaming} />
         {msg.content && (
-          <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {msg.content}
+          <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+            <Markdown>{msg.content}</Markdown>
           </div>
         )}
         {msg.isStreaming && !msg.content && (
