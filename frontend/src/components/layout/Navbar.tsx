@@ -1,3 +1,4 @@
+// To switch back and forth between dashboard and analysis page
 import { Activity } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";

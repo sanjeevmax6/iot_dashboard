@@ -109,7 +109,7 @@ export function LogsTable({
         </table>
       </div>
 
-      {/* Pagination */}
+      {/* Pagination so that data is loaded in chunks. Better for latency especially with records spanning millions in real world NYISO grid*/}
       {pages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
           <span className="text-sm text-gray-500">

@@ -1,3 +1,4 @@
+// Best practice to maintain a common file that does network rerouting
 import type {
   AnalysisResult,
   AnalysisRunResponse,
@@ -24,6 +25,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Defining objects inside the api component
 export const api = {
   logs: {
     list: (params: {

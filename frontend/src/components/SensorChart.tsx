@@ -1,3 +1,4 @@
+// Component that displays the time series graph of top risk machines
 import {
   CartesianGrid,
   Legend,
@@ -17,6 +18,12 @@ interface DotProps {
   payload?: { status: string };
 }
 
+interface Props {
+  logs: LogEntry[];
+  machineId: string;
+}
+
+// Placing this outside as each rerender might cause the dots to flicker, this makes it stable
 function StatusDot({ cx, cy, payload }: DotProps) {
   if (!cx || !cy || !payload) return null;
   if (payload.status === "ERROR") {
@@ -26,11 +33,6 @@ function StatusDot({ cx, cy, payload }: DotProps) {
     return <circle cx={cx} cy={cy} r={3.5} fill="#f59e0b" stroke="white" strokeWidth={1.5} />;
   }
   return null;
-}
-
-interface Props {
-  logs: LogEntry[];
-  machineId: string;
 }
 
 export function SensorChart({ logs, machineId }: Props) {
@@ -53,6 +55,7 @@ export function SensorChart({ logs, machineId }: Props) {
   }
 
   return (
+    // Responsive cotnainer to render the smooth transition
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={data} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
