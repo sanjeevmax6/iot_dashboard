@@ -12,7 +12,7 @@ on:
 
 jobs:
   deploy:
-    name: Full Stack Deploy
+    name: End to End Deploy
     runs-on: ubuntu-latest
 
     steps:
@@ -27,7 +27,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Node (needed for CDK)
+      # Node (needed for AWS CDK in TypeScript)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -41,10 +41,10 @@ jobs:
 
       # CDK Bootstrap
       # Handles two edge cases I hit during development:
-      # 1. Fresh account: CDKToolkit stack doesn't exist yet → bootstrap creates it
+      # 1. Fresh account: CDKToolkit stack doesn't exist yet, bootstrap creates it
       # 2. Drift: CDKToolkit stack exists in CloudFormation but its S3 bucket was
-      #    manually deleted → bootstrap sees "no changes" and skips recreation.
-      #    Fix: delete the drifted stack first, then re-bootstrap.
+      #    manually deleted. Bootstrap sees "no changes" and skips recreation.
+      #    Fix was to delete the drifted stack first, then re-bootstrap.
       - name: Bootstrap CDK environment
         working-directory: infra/cdk
         run: |
@@ -69,7 +69,7 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
-      # Step 1: Deploy VPC + ECR
+      # Step 1: Deploy VPC and ECR
       # These must exist before we can push the Docker image.
       - name: Deploy VPC and ECR stacks
         working-directory: infra/cdk
@@ -102,7 +102,6 @@ jobs:
 
       # Step 3: Deploy ECS stack
       # The image now exists in ECR so the ECS circuit breaker won't fire.
-      #
       # Also handles stacks stuck in ROLLBACK_COMPLETE (from a prior failed
       # deploy where ECS tried to start tasks before the image was pushed).
       # CloudFormation won't let you update a ROLLBACK_COMPLETE stack — it must
@@ -185,3 +184,11 @@ jobs:
           echo "**App URL:** ${{ steps.outputs.outputs.cf_url }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "CloudFront may take 1-2 minutes to fully propagate on first deploy." >> $GITHUB_STEP_SUMMARY
+
+          echo ""
+          echo "=========================================="
+          echo "  DEPLOYMENT COMPLETE"
+          echo "  App URL: ${{ steps.outputs.outputs.cf_url }}"
+          echo "  CloudFront may take 1-2 min to propagate"
+          echo "=========================================="
+          echo ""

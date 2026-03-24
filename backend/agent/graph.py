@@ -8,6 +8,9 @@ from agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from agent.schemas import AnalysisOutput
 from agent.validator import validate_logic
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class AnalysisState(TypedDict):
@@ -21,6 +24,8 @@ class AnalysisState(TypedDict):
 
 
 def invoke_llm(state: AnalysisState) -> AnalysisState:
+    attempt = state["retry_count"] + 1
+    logger.info("Invoking LLM for analysis, attempt %d, machines being analyzed are %d", attempt, len(state["machine_summaries"]))
     llm = get_llm().with_structured_output(AnalysisOutput)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -30,8 +35,10 @@ def invoke_llm(state: AnalysisState) -> AnalysisState:
         result = llm.invoke(messages)
         if result is None:
             raise ValueError("LLM returned no structured output (tool was not called)")
+        logger.info("LLM returned a structured result on attempt %d", attempt)
         return {**state, "parsed_result": result, "retry_count": state["retry_count"] + 1}
     except Exception as exc:
+        logger.warning("LLM call failed on attempt %d, error is %s", attempt, exc)
         return {
             **state,
             "parsed_result": None,
@@ -46,14 +53,18 @@ def validate(state: AnalysisState) -> AnalysisState:
 
     errors = validate_logic(state["parsed_result"], state["valid_machine_ids"], expected_count=state["top_n"])
     if errors:
+        logger.warning("Validation failed after attempt %d, errors are %s", state["retry_count"], errors)
         return {**state, "parsed_result": None, "validation_errors": errors}
+    logger.info("Validation passed after attempt %d", state["retry_count"])
     return {**state, "validation_errors": []}
 
 
 def summarize(state: AnalysisState) -> AnalysisState:
     if state["validation_errors"]:
         detail = "; ".join(state["validation_errors"])
+        logger.error("Analysis is giving up after %d attempts, detail is %s", state["retry_count"], detail)
         return {**state, "error_state": f"Analysis failed after {state['retry_count']} attempt(s): {detail}"}
+    logger.info("Analysis complete, returning results after %d attempts", state["retry_count"])
     return state
 
 

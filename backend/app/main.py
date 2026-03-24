@@ -6,15 +6,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import analysis, chat, data, logs, machines
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup (Alembic handles migrations in prod)
+    logger.info("Application starting, log level is %s", settings.log_level.upper())
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables are ready")
     yield
     await engine.dispose()
+    logger.info("Application shutting down, database connections are closed")
 
 
 app = FastAPI(

@@ -1,8 +1,7 @@
 """
 Conversational analyst agent with session memory and token streaming.
 
-Session memory: in-memory dict of session_id → InMemoryChatMessageHistory.
-Resets on server restart — acceptable for this scope.
+Session memory: in-memory dict of session_id → InMemoryChatMessageHistory.Resets on server restart
 
 Streaming: uses ChatModel.astream() to yield tokens as they arrive.
 SSE event types:
@@ -17,11 +16,15 @@ from typing import Any
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from agent.llm_rerouter import get_llm
 from agent.prompts import INTENT_GUARD_PROMPT
 from agent.schemas import AnalysisOutput
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ── Intent guard ─────────────────────────────────────────────────────────────
 
@@ -45,12 +48,15 @@ async def classify_intent(user_message: str) -> bool:
             SystemMessage(content=INTENT_GUARD_PROMPT),
             HumanMessage(content=user_message),
         ])
-        return response.content.strip().upper() == "ON_TOPIC"
-    except Exception:
+        result = response.content.strip().upper() == "ON_TOPIC"
+        logger.info("Intent classification is complete, result is %s", "on topic" if result else "off topic")
+        return result
+    except Exception as exc:
+        logger.warning("Intent classification failed, failing open, error is %s", exc)
         return True
 
 
-# ── Session store ────────────────────────────────────────────────────────────
+# Session store
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
 
@@ -61,9 +67,12 @@ def get_or_create_session(session_id: str) -> InMemoryChatMessageHistory:
     return _sessions[session_id]
 
 
-# ── System prompt ────────────────────────────────────────────────────────────
+# System prompt
 
-def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
+def _build_system_prompt(
+    analysis: AnalysisOutput | None,
+    summaries: list[dict] | None = None,
+) -> str:
     base = (
         "You are an industrial fleet analyst. "
         "You help maintenance teams understand machine health, diagnose issues, "
@@ -80,7 +89,7 @@ def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
         f"- {m.machine_id}: {m.risk_level} risk (score {m.risk_score:.2f}) — {m.reason}"
         for m in analysis.top_at_risk_machines
     )
-    return (
+    prompt = (
         f"{base}\n\n"
         f"Latest fleet analysis results:\n{machines_summary}\n\n"
         f"Fleet summary: {analysis.fleet_summary}\n\n"
@@ -89,22 +98,25 @@ def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
         "Do not fabricate machine IDs or metrics not present above."
     )
 
+    if summaries:
+        prompt += f"\n\nRaw sensor data (all machines):\n{json.dumps(summaries, indent=2)}"
 
-# ── Streaming chat ────────────────────────────────────────────────────────────
+    return prompt
+
+
+# Streaming chat
 
 async def stream_chat(
     session_id: str,
     user_message: str,
     analysis: AnalysisOutput | None,
+    summaries: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     history = get_or_create_session(session_id)
     llm = get_llm()
 
-    system_prompt = _build_system_prompt(analysis)
+    system_prompt = _build_system_prompt(analysis, summaries)
 
-    # Build the runnable: system message is injected fresh each call so it
-    # always reflects the latest analysis; history carries the conversation.
-    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -121,6 +133,7 @@ async def stream_chat(
         history_messages_key="history",
     )
 
+    logger.info("Starting chat stream, session_id is %s", session_id)
     full_response = ""
     try:
         async for chunk in runnable.astream(
@@ -139,17 +152,20 @@ async def stream_chat(
                 full_response += token
                 yield {"type": "thinking_token", "content": token}
 
+        logger.info("Chat stream is complete, session_id is %s, response length is %d characters", session_id, len(full_response))
         yield {"type": "done", "message": full_response}
 
     except Exception as exc:
+        logger.error("Chat stream failed, session_id is %s, error is %s", session_id, exc)
         yield {"type": "error", "message": str(exc)}
 
 
-# ── Narrate analysis results ──────────────────────────────────────────────────
+# Narrate analysis results
 
 async def narrate_analysis(
     session_id: str,
     analysis: AnalysisOutput,
+    summaries: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """
     Called after run_analysis() completes. Asks the LLM to narrate the
@@ -168,5 +184,5 @@ async def narrate_analysis(
         "Be direct — one paragraph per machine, no bullet lists."
     )
 
-    async for event in stream_chat(session_id, prompt, analysis):
+    async for event in stream_chat(session_id, prompt, analysis, summaries):
         yield event
