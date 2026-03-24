@@ -1,0 +1,58 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      # Override to use the named volume path
+      DATABASE_URL: sqlite+aiosqlite:///./data/iot_dashboard.db
+      # Allow requests through nginx on port 80
+      CORS_ORIGINS: '["http://localhost"]'
+    volumes:
+      - db_data:/app/data
+    networks:
+      - app_net
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    networks:
+      - app_net
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - app_net
+    restart: unless-stopped
+
+volumes:
+  db_data:
+
+networks:
+  app_net:
+    driver: bridge

@@ -1,6 +1,7 @@
 import { CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Exporing so I can do type check/filter at dashboard
 export type IngestState =
   | { phase: "idle" }
   | { phase: "streaming"; processed: number; total: number; machine_id: string; timestamp: string; inserted: number; skipped: number }
