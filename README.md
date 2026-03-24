@@ -16,8 +16,7 @@
 5. [Architecture](#architecture)
 6. [How the AI Works](#how-the-ai-works)
 7. [File Structure](#file-structure)
-8. [API Reference](#api-reference)
-9. [Troubleshooting](#troubleshooting)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -109,33 +108,6 @@ curl -X POST http://localhost/api/logs/ingest \
 
 Then click **Analyze Fleet Health** to trigger the AI analysis.
 
-### 5. Run tests
-
-```bash
-# Backend (requires Python 3.12)
-cd backend
-pip install -r requirements.txt
-pytest --cov=app --cov=agent
-
-# Frontend
-cd frontend
-npm install
-npm test
-```
-
-### Environment Variables Reference
-
-| Variable | Description | Default |
-|---|---|---|
-| `LLM_PROVIDER` | `openai` or `bedrock` | `openai` |
-| `OPENAI_API_KEY` | OpenAI secret key | — |
-| `OPENAI_MODEL` | OpenAI model name | `gpt-4o-mini` |
-| `BEDROCK_REGION` | AWS region | `us-east-1` |
-| `BEDROCK_MODEL_ID` | Bedrock inference profile ID | `us.amazon.nova-lite-v1:0` |
-| `DATABASE_URL` | SQLAlchemy connection string | `sqlite+aiosqlite:///./iot_dashboard.db` |
-| `MAX_AI_RETRIES` | LLM validation retry limit | `3` |
-| `TOP_AT_RISK_COUNT` | Machines to return from analysis | `3` |
-
 ---
 
 ## AWS Deployment via GitHub Actions
@@ -196,67 +168,17 @@ The entire AWS infrastructure is managed with CDK and deployed with a single but
 
 ---
 
+---
+
 ## Architecture
 
-### Production (AWS)
-
-```
-  Browser
-     │
-     ▼
-┌─────────────┐
-│  CloudFront │  CDN — serves React SPA from S3, proxies /api/* to ALB
-└──────┬──────┘
-       │ /api/*
-       ▼
-┌─────────────┐
-│     ALB     │  Application Load Balancer (public subnet)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────┐
-│   ECS Fargate (private)     │
-│  FastAPI + LangGraph agent  │  512 MB / 0.25 vCPU
-└──────┬──────────────────────┘
-       │
-       ├──▶  SQLite (ephemeral, in-container)
-       │
-       └──▶  AWS Bedrock
-              Amazon Nova Lite (us.amazon.nova-lite-v1:0)
-              Inference profile — no Marketplace subscription needed
-
-S3 Bucket  ◀──  React build artifacts (served via CloudFront OAC)
-ECR        ◀──  Backend Docker image
-Secrets Manager  ◀──  OpenAI API key (optional, injected at runtime)
-```
-
-### Key design decisions
-
-| Decision | Rationale |
-|---|---|
-| Fargate over EC2 | No capacity planning needed; auto-scales to zero when idle |
-| CloudFront + S3 for frontend | Static hosting at CDN edge; same origin as API avoids CORS complexity |
-| ALB not public-facing directly | CloudFront sits in front, so browser requests never hit the ALB URL directly |
-| Amazon Nova Lite as default model | No AWS Marketplace subscription required — works on any fresh AWS account out of the box |
-| SQLite (not RDS) | Acceptable for this scope; resets on each deploy which is fine for a demo |
-| NAT Gateway in VPC | Fargate tasks in private subnets need outbound internet access to reach Bedrock |
-
-### Local (Docker Compose)
-
-```
-  Browser
-     │
-     ▼
-┌─────────────┐
-│    Nginx    │  :80 — reverse proxy
-└──────┬──────┘
-       ├──▶  /api/*  ──▶  FastAPI (backend:8000)
-       └──▶  /*      ──▶  React build (frontend:80)
-```
+![Architecture](assets/architecture.png)
 
 ---
 
 ## How the AI Works
+
+![AI Architecture](assets/ai-architecture.png)
 
 The AI system has two independent components: a **batch analysis workflow** and a **streaming chat interface**.
 
@@ -403,65 +325,28 @@ iot_dashboard/
 
 ---
 
-## API Reference
-
-Full interactive docs available at `http://localhost/api/docs` when running locally.
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| `POST` | `/api/logs/ingest` | Upload CSV sensor data |
-| `GET` | `/api/logs` | Paginated log listing with filters |
-| `GET` | `/api/machines` | List all machine IDs |
-| `GET` | `/api/data` | Sensor time-series for charts |
-| `POST` | `/api/analysis/run` | Trigger background AI analysis job |
-| `GET` | `/api/analysis/status/{job_id}` | Poll analysis job status |
-| `GET` | `/api/analysis/latest` | Get most recent completed analysis |
-| `POST` | `/api/analysis/chat/stream` | SSE streaming chat |
-
----
-
 ## Troubleshooting
 
 ### ECS Circuit Breaker triggered on deploy
-
-**Symptom:** `ECS Deployment Circuit Breaker was triggered` in CloudFormation events.
-
-**Cause:** ECS tried to start tasks before a valid Docker image existed in ECR, or the image was built for the wrong CPU architecture.
-
-**Fix:** The `deploy.yml` workflow handles this automatically by:
-1. Deploying ECR before building the image
-2. Building with `--platform linux/amd64` (required for Fargate)
-3. Detecting and deleting `ROLLBACK_COMPLETE` stacks before retrying
-
-If deploying manually, always follow this order: deploy ECR → push image → deploy ECS.
+**Symptom:** `ECS Deployment Circuit Breaker was triggered`
+**Fix:** `deploy.yml` handles this automatically (deploys ECR first, builds with `--platform linux/amd64`, detects `ROLLBACK_COMPLETE` stacks). If deploying manually: deploy ECR → push image → deploy ECS.
 
 ---
 
-### CDK bootstrap fails with "No bucket named cdk-hnb659fds-assets-..."
-
-**Symptom:** `Failed to publish one or more assets. No bucket named 'cdk-hnb659fds-assets-ACCOUNT-REGION'`
-
-**Cause:** The CDKToolkit CloudFormation stack exists but its S3 bucket was manually deleted. CDK bootstrap sees "no changes" and skips recreating the bucket (stack drift).
-
-**Fix:**
+### CDK bootstrap fails — missing S3 bucket
+**Symptom:** `No bucket named 'cdk-hnb659fds-assets-ACCOUNT-REGION'`
+**Cause:** CDKToolkit stack exists but its S3 bucket was deleted (stack drift). `deploy.yml` handles this automatically.
 ```bash
 aws cloudformation delete-stack --stack-name CDKToolkit --region us-east-1
 aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region us-east-1
 npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ```
 
-The `deploy.yml` workflow detects and handles this automatically.
-
 ---
 
 ### Docker image platform mismatch
-
 **Symptom:** `image Manifest does not contain descriptor matching platform 'linux/amd64'`
-
-**Cause:** The image was built on Apple Silicon (arm64) without specifying the target platform. Fargate uses x86_64.
-
-**Fix:** Always build with the platform flag:
+**Fix:** Built on Apple Silicon without a target platform flag. Always use:
 ```bash
 docker build --platform linux/amd64 -t my-image ./backend
 ```
@@ -469,70 +354,43 @@ docker build --platform linux/amd64 -t my-image ./backend
 ---
 
 ### Bedrock model access denied
-
 **Symptom:** `AccessDeniedException: not authorized to perform bedrock:InvokeModel`
-
-**Two possible causes:**
-
-1. **Model not enabled** — Anthropic models require a one-time Marketplace subscription. Go to **AWS Console → Bedrock → Model access** and enable the model. Amazon Nova models (the default) do not require this.
-
-2. **Missing IAM action** — Streaming chat uses `bedrock:InvokeModelWithResponseStream`, which is separate from `bedrock:InvokeModel`. Both are granted in `ecs-stack.ts`.
+- Anthropic models require enabling in **AWS Console → Bedrock → Model access**. Nova (default) does not.
+- Streaming chat requires `bedrock:InvokeModelWithResponseStream` — both actions are granted in `ecs-stack.ts`.
 
 ---
 
 ### Bedrock tool description validation error
-
-**Symptom:** `Parameter validation failed: Invalid length for parameter toolConfig.tools[0].toolSpec.description, value: 0, valid min length: 1`
-
-**Cause:** Amazon Nova (and some other Bedrock models) strictly require non-empty `description` fields on every Pydantic field and class used with `with_structured_output`. OpenAI is more lenient.
-
-**Fix:** Ensure all Pydantic models used as structured output have:
-- A class docstring (becomes `toolSpec.description`)
-- `Field(description="...")` on every field (becomes parameter descriptions)
-
-This is already applied in `agent/schemas.py`.
+**Symptom:** `Invalid length for parameter toolConfig.tools[0].toolSpec.description, value: 0`
+**Fix:** Nova requires non-empty descriptions on all Pydantic fields and class docstrings. Already applied in `agent/schemas.py`.
 
 ---
 
-### Chat streaming produces garbled or no output
-
-**Symptom:** Chat tokens appear as `[object Object]` or chat silently fails.
-
-**Cause:** Amazon Nova returns `chunk.content` as a list of content blocks (e.g. `[{"type": "text", "text": "..."}]`) rather than a plain string. OpenAI returns a plain string.
-
-**Fix:** The `stream_chat` function in `agent/chat.py` handles both formats by checking `isinstance(raw, list)` and extracting text from each block accordingly.
+### Chat streaming produces garbled output
+**Symptom:** Chat tokens appear as `[object Object]`
+**Fix:** Nova returns `chunk.content` as a list of content blocks, not a plain string. Handled in `agent/chat.py` via `isinstance(raw, list)` check.
 
 ---
 
 ### Stack stuck in ROLLBACK_COMPLETE
-
-**Symptom:** CDK deploy fails with `Stack is in ROLLBACK_COMPLETE state and cannot be updated`.
-
-**Fix:**
+**Symptom:** `Stack is in ROLLBACK_COMPLETE state and cannot be updated`
+**Fix:** `deploy.yml` handles this automatically. Manually:
 ```bash
 aws cloudformation delete-stack --stack-name IotDashboardEcs --region us-east-1
 aws cloudformation wait stack-delete-complete --stack-name IotDashboardEcs --region us-east-1
-# Then re-run the deploy
 ```
-
-The `deploy.yml` workflow detects and handles this automatically.
 
 ---
 
 ### Frontend shows AccessDenied XML
-
-**Symptom:** Visiting the CloudFront URL shows `<Error><Code>AccessDenied</Code>` XML.
-
-**Cause:** The S3 bucket is empty — the React app was never built and synced.
-
-**Fix:** Run the frontend deploy step:
+**Symptom:** CloudFront URL returns `<Error><Code>AccessDenied</Code>` XML
+**Cause:** S3 bucket is empty — frontend was never synced.
 ```bash
 cd frontend && npm ci && npm run build
 aws s3 sync dist/ s3://YOUR_BUCKET_NAME --delete
 aws cloudfront create-invalidation --distribution-id YOUR_CF_ID --paths "/*"
 ```
-
-Bucket name and CloudFront ID are in the `IotDashboardFrontend` stack outputs:
+Find bucket name and CF ID in `IotDashboardFrontend` stack outputs:
 ```bash
 aws cloudformation describe-stacks --stack-name IotDashboardFrontend \
   --query 'Stacks[0].Outputs' --output table
