@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class MachineRisk(BaseModel):
+    """Risk assessment for a single IoT machine."""
+
     machine_id: str = Field(description="Unique identifier of the machine")
     risk_level: Literal["high", "medium", "low"] = Field(description="Severity of the risk: high, medium, or low")
     risk_score: float = Field(ge=0.0, le=1.0, description="Numeric risk score between 0.0 (no risk) and 1.0 (critical)")
@@ -13,6 +15,8 @@ class MachineRisk(BaseModel):
 
 
 class AnalysisOutput(BaseModel):
+    """Structured output of the IoT fleet risk analysis."""
+
     top_at_risk_machines: list[MachineRisk] = Field(description="Ranked list of machines most at risk")
     fleet_summary: str = Field(description="Overall summary of fleet health and key findings")
 
