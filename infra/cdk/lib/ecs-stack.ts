@@ -85,7 +85,10 @@ export class EcsStack extends cdk.Stack {
         // Using Bedrock in production to handle privacy
         LLM_PROVIDER: "bedrock",
         BEDROCK_REGION: this.region,
-        BEDROCK_MODEL_ID: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        // Nova Lite requires no AWS Marketplace subscription — works in any fresh account out of the box.
+        // To use Claude instead, enable model access in the Bedrock console and set this to:
+        // "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        BEDROCK_MODEL_ID: "us.amazon.nova-lite-v1:0",
         // Ephemeral SQLite — data resets on each deploy (acceptable for this project)
         DATABASE_URL: "sqlite+aiosqlite:///./iot_dashboard.db",
         LOG_LEVEL: "INFO",
