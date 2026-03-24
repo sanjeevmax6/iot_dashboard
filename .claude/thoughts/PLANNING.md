@@ -629,11 +629,14 @@ MAX_AI_RETRIES=3
 4.7  [ ] Smoke test: docker compose up → ingest CSV → run analysis → see results
 ```
 
-### Phase 5 — CI/CD 🔶 PARTIAL
+### Phase 5 — CI/CD ✅ COMPLETE
 ```
 5.1  [x] .github/workflows/ci.yml (ruff + mypy + pytest + vitest on every PR)
-5.2  [ ] .github/workflows/cd.yml (build → ECR → S3 → CDK deploy on main)
-5.3  [ ] Branch protection rules (require CI pass before merge)
+5.2  [x] .github/workflows/cd.yml (build → ECR → S3 → CDK deploy on main)
+         - backend job: docker build → ECR push (SHA + latest tags)
+         - frontend job: npm build → S3 sync → CloudFront invalidation
+         - infra job: CDK deploy --all (needs backend + frontend)
+5.3  [ ] Branch protection rules (require CI pass before merge) — configured in GitHub UI
 ```
 
 ### Phase 6 — AWS CDK 🔲 NOT STARTED
