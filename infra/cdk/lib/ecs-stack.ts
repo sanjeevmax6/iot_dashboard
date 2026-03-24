@@ -64,7 +64,7 @@ export class EcsStack extends cdk.Stack {
     // Bedrock: invoke any model — narrow the resource ARN if you want tighter scope
     taskRole.addToPolicy(
       new iam.PolicyStatement({
-        actions: ["bedrock:InvokeModel"],
+        actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
         resources: ["*"],
       })
     );
