@@ -12,5 +12,6 @@ export class VpcStack extends cdk.Stack {
       maxAzs: 2, // 2 is ideal for the scale of this project mostly
       natGateways: 1, // needed to connect private instances with the public instances & internet
     });
+    (this.vpc.node.defaultChild as cdk.CfnResource).applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
   }
 }
