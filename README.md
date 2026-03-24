@@ -2,17 +2,14 @@
 
 > An application that ingests manufacturing sensor data, runs an AI-powered risk analysis workflow, and surfaces maintenance predictions on a live dashboard.
 
-[![CI](https://github.com/sanjeevmax6/iot_dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/sanjeevmax6/iot_dashboard/actions/workflows/ci.yml)
-[![CD](https://github.com/sanjeevmax6/iot_dashboard/actions/workflows/cd.yml/badge.svg)](https://github.com/sanjeevmax6/iot_dashboard/actions/workflows/cd.yml)
-
 ---
 
 ## Table of Contents
 
 1. [What It Does](#what-it-does)
 2. [Tech Stack](#tech-stack)
-3. [Local Setup](#local-setup)
-4. [AWS Deployment via GitHub Actions](#aws-deployment-via-github-actions)
+3. [AWS Deployment via GitHub Actions](#aws-deployment-via-github-actions)
+4. [Local Setup](#local-setup)
 5. [Architecture](#architecture)
 6. [How the AI Works](#how-the-ai-works)
 7. [File Structure](#file-structure)
@@ -45,6 +42,64 @@
 | Networking | VPC, ALB, NAT Gateway |
 | Secrets | AWS Secrets Manager |
 | CI/CD | GitHub Actions |
+
+---
+
+## AWS Deployment via GitHub Actions
+
+The entire AWS infrastructure is managed with CDK and deployed with a single button click. No local AWS tools required.
+
+### Option A — Fork and deploy (recommended for evaluators)
+
+1. **Fork** this repository to your GitHub account
+
+2. **Add three GitHub Secrets** (Settings → Secrets and variables → Actions → New repository secret):
+
+   | Secret name | Value |
+   |---|---|
+   | `AWS_ACCESS_KEY_ID` | Your IAM user access key |
+   | `AWS_SECRET_ACCESS_KEY` | Your IAM user secret key |
+   | `AWS_ACCOUNT_ID` | Your 12-digit AWS account number |
+
+   The IAM user needs these permissions: `AdministratorAccess` (or a scoped policy covering CloudFormation, ECS, ECR, S3, CloudFront, Bedrock, IAM, VPC).
+
+3. **Run the deploy workflow**:
+   - Go to **Actions → Deploy IoT Dashboard → Run workflow → Run workflow**
+   - The workflow takes ~10 minutes on a fresh account
+
+4. **Get the app URL**:
+   - When the workflow finishes, open the run summary — the CloudFront URL is printed there
+   - Example: `https://d1abc123xyz.cloudfront.net`
+
+5. **Tear everything down** when done:
+   - Go to **Actions → Destroy IoT Dashboard → Run workflow → Run workflow**
+   - All AWS resources are deleted; no charges continue after this
+
+### GitHub Actions Workflows
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | Push / PR to `main` | Lint, type-check, test (backend + frontend) |
+| `deploy.yml` | Manual (`workflow_dispatch`) | Full from-scratch deploy of all AWS resources |
+| `cd.yml` | PR merged to `main` | Rebuilds and redeploys backend image + frontend on existing infrastructure |
+| `destroy.yml` | Manual (`workflow_dispatch`) | Tears down all AWS resources |
+
+### Continuous Deployment — what happens on every PR merge to `main`
+
+`cd.yml` runs automatically whenever a pull request is merged into `main`. It runs two jobs in parallel:
+
+**Backend job:**
+1. Builds a new Docker image tagged with the commit SHA and `latest`
+2. Pushes both tags to ECR
+3. Calls `aws ecs update-service --force-new-deployment` — ECS spins up a new Fargate task with the fresh image and drains the old one
+4. Waits for the service to reach a stable state before the job completes
+
+**Frontend job:**
+1. Runs `npm ci && npm run build`
+2. Syncs the `dist/` output to the S3 bucket (`--delete` removes stale files)
+3. Issues a CloudFront `/*` cache invalidation so users get the latest build immediately
+
+> **Note on the database:** ECS Fargate tasks have an ephemeral filesystem — each new deployment starts a fresh container with an empty SQLite database. For this demo, sensor data is re-ingested from the CSV after each deploy. In a production setup this would be replaced by an EFS-mounted volume or RDS instance.
 
 ---
 
@@ -110,66 +165,6 @@ Then click **Analyze Fleet Health** to trigger the AI analysis.
 
 ---
 
-## AWS Deployment via GitHub Actions
-
-The entire AWS infrastructure is managed with CDK and deployed with a single button click. No local AWS tools required.
-
-### Option A — Fork and deploy (recommended for evaluators)
-
-1. **Fork** this repository to your GitHub account
-
-2. **Add three GitHub Secrets** (Settings → Secrets and variables → Actions → New repository secret):
-
-   | Secret name | Value |
-   |---|---|
-   | `AWS_ACCESS_KEY_ID` | Your IAM user access key |
-   | `AWS_SECRET_ACCESS_KEY` | Your IAM user secret key |
-   | `AWS_ACCOUNT_ID` | Your 12-digit AWS account number |
-
-   The IAM user needs these permissions: `AdministratorAccess` (or a scoped policy covering CloudFormation, ECS, ECR, S3, CloudFront, Bedrock, IAM, VPC, Secrets Manager).
-
-3. **Run the deploy workflow**:
-   - Go to **Actions → Deploy IoT Dashboard → Run workflow → Run workflow**
-   - The workflow takes ~10 minutes on a fresh account
-
-4. **Get the app URL**:
-   - When the workflow finishes, open the run summary — the CloudFront URL is printed there
-   - Example: `https://d1abc123xyz.cloudfront.net`
-
-5. **Tear everything down** when done:
-   - Go to **Actions → Destroy IoT Dashboard → Run workflow → Run workflow**
-   - All AWS resources are deleted; no charges continue after this
-
-### GitHub Actions Workflows
-
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `ci.yml` | Push / PR to `main` | Lint, type-check, test (backend + frontend) |
-| `deploy.yml` | Manual (`workflow_dispatch`) | Full from-scratch deploy of all AWS resources |
-| `cd.yml` | PR merged to `main` | Rebuilds and redeploys backend image + frontend on existing infrastructure |
-| `destroy.yml` | Manual (`workflow_dispatch`) | Tears down all AWS resources |
-
-### Continuous Deployment — what happens on every PR merge to `main`
-
-`cd.yml` runs automatically whenever a pull request is merged into `main`. It runs two jobs in parallel:
-
-**Backend job:**
-1. Builds a new Docker image tagged with the commit SHA and `latest`
-2. Pushes both tags to ECR
-3. Calls `aws ecs update-service --force-new-deployment` — ECS spins up a new Fargate task with the fresh image and drains the old one
-4. Waits for the service to reach a stable state before the job completes
-
-**Frontend job:**
-1. Runs `npm ci && npm run build`
-2. Syncs the `dist/` output to the S3 bucket (`--delete` removes stale files)
-3. Issues a CloudFront `/*` cache invalidation so users get the latest build immediately
-
-> **Note on the database:** ECS Fargate tasks have an ephemeral filesystem — each new deployment starts a fresh container with an empty SQLite database. For this demo, sensor data is re-ingested from the CSV after each deploy. In a production setup this would be replaced by an EFS-mounted volume or RDS instance.
-
----
-
----
-
 ## Architecture
 
 ![Architecture](assets/architecture.png)
@@ -186,35 +181,6 @@ The AI system has two independent components: a **batch analysis workflow** and 
 
 When you click **Analyze Fleet Health**, this pipeline runs:
 
-```
-                    ┌─────────────┐
-                    │  Summarizer │
-                    │  (SQL agg)  │  Aggregates per-machine stats from DB:
-                    └──────┬──────┘  error rate, avg/max temp & vibration
-                           │
-                           ▼
-                    ┌─────────────┐
-              ┌────▶│  invoke_llm │  Calls Bedrock with structured output.
-              │     │             │  The LLM must return a typed AnalysisOutput
-              │     └──────┬──────┘  (Pydantic schema injected as a tool).
-              │            │
-              │            ▼
-              │     ┌─────────────┐  Stage 1: Pydantic schema validation
-              │     │  validate   │  Stage 2: Logic contradiction checks:
-              │     │             │   - risk_score within bounds for risk_level
-  retry ◀─────┤     │             │   - no fabricated machine IDs
-  (up to 3x)  │     │             │   - descending risk score order
-              │     │             │   - high-risk machines must have affected sensors
-              │     └──────┬──────┘
-              │            │  errors?
-              └────────────┘
-                           │  clean
-                           ▼
-                    ┌─────────────┐
-                    │  summarize  │  Sets error_state if all retries failed
-                    └─────────────┘
-```
-
 **Why the validation layer?** LLMs occasionally hallucinate machine IDs, assign a `risk_score` that contradicts the stated `risk_level`, or return results in the wrong order. Rather than silently accepting bad data, the validator catches these contradictions and feeds the exact errors back to the LLM as correction instructions, retrying up to `MAX_AI_RETRIES` times.
 
 ### 2. Intent Guard
@@ -223,26 +189,7 @@ Before every chat message is processed, a lightweight classifier call checks whe
 
 ### 3. Streaming Chat (SSE)
 
-The chat interface uses Server-Sent Events for token streaming:
-
-```
-Browser  ──POST /api/analysis/chat/stream──▶  FastAPI
-                                                 │
-                                          ┌──────┴──────┐
-                                          │  classify   │  intent guard
-                                          │  intent     │
-                                          └──────┬──────┘
-                                                 │ ON_TOPIC
-                                          ┌──────┴──────┐
-                                          │ stream_chat │  LangChain RunnableWithMessageHistory
-                                          │             │  Bedrock ConverseStream API
-                                          └──────┬──────┘
-                                                 │
-         ◀── SSE: {"type":"thinking_token"} ─────┘  (streamed as tokens arrive)
-         ◀── SSE: {"type":"done"}                   (signals completion)
-```
-
-Session memory (conversation history) is held in-process per `session_id`. It resets on server restart — acceptable for this scope.
+The chat interface uses Server-Sent Events for token streaming. Session memory (conversation history) is held in-process per `session_id`. It resets on server restart — acceptable for this scope.
 
 ### 4. LLM Provider switching
 
@@ -327,13 +274,11 @@ iot_dashboard/
 
 ## Troubleshooting
 
-### ECS Circuit Breaker triggered on deploy
+**1. ECS Circuit Breaker triggered on deploy**
 **Symptom:** `ECS Deployment Circuit Breaker was triggered`
 **Fix:** `deploy.yml` handles this automatically (deploys ECR first, builds with `--platform linux/amd64`, detects `ROLLBACK_COMPLETE` stacks). If deploying manually: deploy ECR → push image → deploy ECS.
 
----
-
-### CDK bootstrap fails — missing S3 bucket
+**2. CDK bootstrap fails — missing S3 bucket**
 **Symptom:** `No bucket named 'cdk-hnb659fds-assets-ACCOUNT-REGION'`
 **Cause:** CDKToolkit stack exists but its S3 bucket was deleted (stack drift). `deploy.yml` handles this automatically.
 ```bash
@@ -342,37 +287,27 @@ aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region u
 npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ```
 
----
-
-### Docker image platform mismatch
+**3. Docker image platform mismatch**
 **Symptom:** `image Manifest does not contain descriptor matching platform 'linux/amd64'`
 **Fix:** Built on Apple Silicon without a target platform flag. Always use:
 ```bash
 docker build --platform linux/amd64 -t my-image ./backend
 ```
 
----
-
-### Bedrock model access denied
+**4. Bedrock model access denied**
 **Symptom:** `AccessDeniedException: not authorized to perform bedrock:InvokeModel`
 - Anthropic models require enabling in **AWS Console → Bedrock → Model access**. Nova (default) does not.
 - Streaming chat requires `bedrock:InvokeModelWithResponseStream` — both actions are granted in `ecs-stack.ts`.
 
----
-
-### Bedrock tool description validation error
+**5. Bedrock tool description validation error**
 **Symptom:** `Invalid length for parameter toolConfig.tools[0].toolSpec.description, value: 0`
 **Fix:** Nova requires non-empty descriptions on all Pydantic fields and class docstrings. Already applied in `agent/schemas.py`.
 
----
-
-### Chat streaming produces garbled output
+**6. Chat streaming produces garbled output**
 **Symptom:** Chat tokens appear as `[object Object]`
 **Fix:** Nova returns `chunk.content` as a list of content blocks, not a plain string. Handled in `agent/chat.py` via `isinstance(raw, list)` check.
 
----
-
-### Stack stuck in ROLLBACK_COMPLETE
+**7. Stack stuck in ROLLBACK_COMPLETE**
 **Symptom:** `Stack is in ROLLBACK_COMPLETE state and cannot be updated`
 **Fix:** `deploy.yml` handles this automatically. Manually:
 ```bash
@@ -380,9 +315,7 @@ aws cloudformation delete-stack --stack-name IotDashboardEcs --region us-east-1
 aws cloudformation wait stack-delete-complete --stack-name IotDashboardEcs --region us-east-1
 ```
 
----
-
-### Frontend shows AccessDenied XML
+**8. Frontend shows AccessDenied XML**
 **Symptom:** CloudFront URL returns `<Error><Code>AccessDenied</Code>` XML
 **Cause:** S3 bucket is empty — frontend was never synced.
 ```bash
