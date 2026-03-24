@@ -51,7 +51,12 @@ jobs:
             --service $SERVICE \
             --force-new-deployment \
             --region us-east-1 > /dev/null
-          echo "ECS deployment triggered for $SERVICE"
+          echo "ECS deployment is triggered for $SERVICE, waiting for stability"
+          aws ecs wait services-stable \
+            --cluster iot-dashboard \
+            --services $SERVICE \
+            --region us-east-1
+          echo "ECS service is stable, new container is live"
 
   frontend:
     name: Build & deploy frontend
