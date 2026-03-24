@@ -119,7 +119,7 @@ async def stream_chat(
 
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        SystemMessage(content=system_prompt),
         MessagesPlaceholder(variable_name="history"),
         ("human", "{input}"),
     ])
