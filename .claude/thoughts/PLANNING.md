@@ -618,14 +618,14 @@ MAX_AI_RETRIES=3
      [x] Clear analysis functionality
 ```
 
-### Phase 4 — Containers 🔲 NOT STARTED
+### Phase 4 — Containers ✅ COMPLETE
 ```
-4.1  [ ] backend/Dockerfile (multi-stage: build + slim runtime)
-4.2  [ ] frontend/Dockerfile (multi-stage: node build + nginx serve)
-4.3  [ ] infra/nginx/nginx.conf (proxy /api/* to backend, /* to frontend)
-4.4  [ ] infra/docker-compose.yml (nginx + backend + frontend)
-4.5  [ ] infra/docker-compose.dev.yml (hot reload overrides)
-4.6  [ ] .env.example (root level)
+4.1  [x] backend/Dockerfile (multi-stage: python:3.12-slim builder + slim runtime)
+4.2  [x] frontend/Dockerfile (multi-stage: node:22-alpine build + nginx:alpine serve)
+4.3  [x] infra/nginx/nginx.conf (proxy /api/* to backend, /* to frontend; SSE support)
+4.4  [x] infra/docker-compose.yml (nginx + backend + frontend; healthcheck on /api/health)
+4.5  [x] infra/docker-compose.dev.yml (backend hot reload via --reload + volume mount; frontend/nginx disabled via profiles)
+4.6  [x] .env.example (root level)
 4.7  [ ] Smoke test: docker compose up → ingest CSV → run analysis → see results
 ```
 
