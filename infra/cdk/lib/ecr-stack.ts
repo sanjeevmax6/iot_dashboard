@@ -12,7 +12,7 @@ export class EcrStack extends cdk.Stack {
       repositoryName: "iot-dashboard-backend",
       removalPolicy: cdk.RemovalPolicy.DESTROY, // added this manually for cleaner setup for this project. In a real world use case, would need to retain for backup (for rollbacks and availability)
       emptyOnDelete: true,
-      imageScanOnPush: true,
+      imageScanOnPush: true, // AWS scans for any vulnerabilities (My reasoning: prompt injection traces can be captured)
       lifecycleRules: [
         {
           maxImageCount: 10,
