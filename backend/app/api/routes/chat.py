@@ -64,6 +64,9 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
 
                 nonlocal analysis
                 analysis = state["parsed_result"]
+                if analysis is None:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Analysis returned no structured output.'})}\n\n"
+                    return
 
                 # Persist to DB so useLatestAnalysis can pick it up
                 db_record = AnalysisResult(

@@ -127,7 +127,14 @@ async def stream_chat(
             {"input": user_message},
             config={"configurable": {"session_id": session_id}},
         ):
-            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+            raw = chunk.content if hasattr(chunk, "content") else str(chunk)
+            if isinstance(raw, list):
+                token = "".join(
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in raw
+                )
+            else:
+                token = raw
             if token:
                 full_response += token
                 yield {"type": "thinking_token", "content": token}

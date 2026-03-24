@@ -1,0 +1,90 @@
+name: Destroy IoT Dashboard
+
+# Tears down all AWS resources created by the deploy workflow.
+# Safe to run multiple times — skips resources that are already gone.
+
+# Required GitHub Secrets (same as deploy):
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_ACCOUNT_ID
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    name: Full Stack Teardown
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: infra/cdk/package-lock.json
+
+      - name: Install CDK dependencies
+        working-directory: infra/cdk
+        run: npm ci
+
+      # Empty S3 bucket
+      # CDK sets autoDeleteObjects: true which uses a Lambda to empty the bucket
+      # on destroy. However if the Lambda itself fails (e.g. a prior partial
+      # destroy), CloudFormation leaves the bucket and the whole destroy fails.
+      # Pre-emptively emptying it here makes destroy reliable.
+      - name: Empty S3 bucket
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+            echo "Emptying bucket: $BUCKET"
+            aws s3 rm s3://$BUCKET --recursive
+          else
+            echo "Frontend stack not found or already destroyed — skipping bucket empty."
+          fi
+
+      # CDK destroy all stacks
+      # CDK automatically destroys in reverse dependency order:
+      # IotDashboardFrontend → IotDashboardEcs → IotDashboardEcr → IotDashboardVpc
+      - name: CDK destroy all stacks
+        working-directory: infra/cdk
+        run: npx cdk destroy --all --force
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Force-delete any stuck stacks
+      # Stacks in ROLLBACK_COMPLETE or DELETE_FAILED can't be handled by CDK.
+      # This cleans up any that were left over from previous failed deploys.
+      - name: Clean up stuck stacks
+        run: |
+          for STACK in IotDashboardFrontend IotDashboardEcs IotDashboardEcr IotDashboardVpc; do
+            STATUS=$(aws cloudformation describe-stacks \
+              --stack-name $STACK --region us-east-1 \
+              --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+            echo "$STACK: $STATUS"
+            if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+              echo "Force-deleting stuck stack: $STACK"
+              aws cloudformation delete-stack --stack-name $STACK --region us-east-1
+              aws cloudformation wait stack-delete-complete --stack-name $STACK --region us-east-1
+              echo "$STACK deleted."
+            fi
+          done
+
+      - name: Teardown summary
+        run: |
+          echo "## Teardown complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All IoT Dashboard AWS resources have been destroyed." >> $GITHUB_STEP_SUMMARY

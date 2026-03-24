@@ -1,15 +1,20 @@
 name: CD
 
+# Runs when a PR is merged to main — updates backend image and frontend.
+# Assumes infrastructure already exists (run deploy.yml first).
+
 on:
-  push:
+  pull_request:
     branches: [main]
+    types: [closed]
 
 jobs:
   backend:
     name: Build & push backend image
     runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -17,91 +22,86 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: us-east-1
 
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      # --platform linux/amd64 required: Fargate runs x86_64, not arm64 (An error I encountered)
       - name: Build and push image
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          REPOSITORY: iot-dashboard-backend
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG -t $REGISTRY/$REPOSITORY:latest ./backend
+          docker build --platform linux/amd64 \
+            -t $REGISTRY/$REPOSITORY:$IMAGE_TAG \
+            -t $REGISTRY/$REPOSITORY:latest \
+            ./backend
           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
           docker push $REGISTRY/$REPOSITORY:latest
+
+      - name: Force ECS redeployment
+        run: |
+          SERVICE=$(aws ecs list-services --cluster iot-dashboard --region us-east-1 \
+            --query 'serviceArns[0]' --output text | xargs basename)
+          aws ecs update-service \
+            --cluster iot-dashboard \
+            --service $SERVICE \
+            --force-new-deployment \
+            --region us-east-1 > /dev/null
+          echo "ECS deployment triggered for $SERVICE"
 
   frontend:
     name: Build & deploy frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+    if: github.event.pull_request.merged == true
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 22
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
+      - name: Install and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: us-east-1
+
+      # Read bucket name and CF distribution ID from CloudFormation outputs —
+      # no need to maintain GitHub variables manually.
+      - name: Read CDK stack outputs
+        id: outputs
+        run: |
+          S3_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" \
+            --output text)
+          CF_ID=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+            --output text)
+          echo "s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          echo "cf_id=$CF_ID" >> $GITHUB_OUTPUT
 
       - name: Sync to S3
-        run: aws s3 sync dist/ s3://${{ vars.S3_BUCKET }} --delete
+        run: aws s3 sync frontend/dist/ s3://${{ steps.outputs.outputs.s3_bucket }} --delete
 
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --distribution-id ${{ steps.outputs.outputs.cf_id }} \
             --paths "/*"
-
-  infra:
-    name: CDK deploy
-    needs: [backend, frontend]
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/cdk
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: infra/cdk/package-lock.json
-
-      - name: Install CDK dependencies
-        run: npm ci
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: CDK deploy
-        run: npx cdk deploy --all --require-approval never
-        env:
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          IMAGE_TAG: ${{ github.sha }}
