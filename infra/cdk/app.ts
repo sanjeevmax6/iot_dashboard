@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { VpcStack } from "../lib/vpc-stack";
-import { EcrStack } from "../lib/ecr-stack";
-import { EcsStack } from "../lib/ecs-stack";
-import { FrontendStack } from "../lib/frontend-stack";
+import { VpcStack } from "./lib/vpc-stack";
+import { EcrStack } from "./lib/ecr-stack";
+import { EcsStack } from "./lib/ecs-stack";
+import { FrontendStack } from "./lib/frontend-stack";
 
 const app = new cdk.App();
 
