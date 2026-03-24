@@ -639,18 +639,18 @@ MAX_AI_RETRIES=3
 5.3  [ ] Branch protection rules (require CI pass before merge) — configured in GitHub UI
 ```
 
-### Phase 6 — AWS CDK 🔲 NOT STARTED
+### Phase 6 — AWS CDK ✅ COMPLETE
 ```
-6.1  [ ] infra/cdk/ project init (cdk init app --language typescript)
-6.2  [ ] VpcStack
-6.3  [ ] EcrStack
-6.4  [ ] EcsStack (with EFS for SQLite persistence + Secrets Manager)
-6.5  [ ] FrontendStack (S3 + CloudFront)
-6.6  [ ] BedrockStack (IAM role for Fargate task)
-6.7  [ ] Wire CDK stacks together in bin/app.ts
-6.8  [ ] cdk bootstrap (one-time per account/region)
+6.1  [x] infra/cdk/ project init (manual — package.json, tsconfig.json, cdk.json)
+6.2  [x] VpcStack (2 AZs, 1 NAT gateway)
+6.3  [x] EcrStack (iot-dashboard-backend repo, scan on push, retain on destroy)
+6.4  [x] EcsStack (Fargate 256cpu/512mb, ALB, Bedrock IAM role, Secrets Manager for OPENAI_API_KEY, ephemeral SQLite)
+6.5  [x] FrontendStack (S3 + CloudFront; /api/* → ALB, /* → S3; SSE behavior with 60s timeout)
+6.6  [x] BedrockStack — folded into EcsStack as taskRole IAM policy (no separate stack needed)
+6.7  [x] Wire CDK stacks together in bin/app.ts
+6.8  [ ] cdk bootstrap (one-time per account/region — run manually)
 6.9  [ ] Manual first deploy: cdk deploy --all
-6.10 [ ] Update cd.yml to use CDK
+6.10 [x] cd.yml updated (npm install for CDK, no lock file needed)
 ```
 
 ### Phase 7 — Polish 🔲 NOT STARTED
