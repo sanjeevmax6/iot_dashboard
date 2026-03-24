@@ -28,6 +28,8 @@ def invoke_llm(state: AnalysisState) -> AnalysisState:
     ]
     try:
         result = llm.invoke(messages)
+        if result is None:
+            raise ValueError("LLM returned no structured output (tool was not called)")
         return {**state, "parsed_result": result, "retry_count": state["retry_count"] + 1}
     except Exception as exc:
         return {
