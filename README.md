@@ -47,9 +47,9 @@
 
 ## AWS Deployment via GitHub Actions
 
-The entire AWS infrastructure is managed with CDK and deployed with a single button click. No local AWS tools required.
+There are two ways to run this app: **AWS deployment** (production, via GitHub Actions) and **local setup** (Docker Compose). Follow the relevant section below.
 
-### Option A — Fork and deploy (recommended for evaluators)
+The entire AWS infrastructure is managed with CDK and deployed with a single button click. No local AWS tools required.
 
 1. **Fork** this repository to your GitHub account
 
