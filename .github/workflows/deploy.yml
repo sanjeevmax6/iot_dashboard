@@ -1,0 +1,187 @@
+name: Deploy IoT Dashboard
+
+# One-click full stack deployment — spins up all AWS resources from scratch.
+
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   AWS_ACCESS_KEY_ID     — IAM user access key
+#   AWS_SECRET_ACCESS_KEY — IAM user secret key
+#   AWS_ACCOUNT_ID        — 12-digit AWS account number
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Full Stack Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # AWS credentials 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Node (needed for CDK)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: infra/cdk/package-lock.json
+
+      - name: Install CDK dependencies
+        working-directory: infra/cdk
+        run: npm ci
+
+      # CDK Bootstrap
+      # Handles two edge cases I hit during development:
+      # 1. Fresh account: CDKToolkit stack doesn't exist yet → bootstrap creates it
+      # 2. Drift: CDKToolkit stack exists in CloudFormation but its S3 bucket was
+      #    manually deleted → bootstrap sees "no changes" and skips recreation.
+      #    Fix: delete the drifted stack first, then re-bootstrap.
+      - name: Bootstrap CDK environment
+        working-directory: infra/cdk
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="cdk-hnb659fds-assets-${ACCOUNT_ID}-us-east-1"
+
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name CDKToolkit --region us-east-1 \
+            --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+          if [ "$STACK_STATUS" != "DOES_NOT_EXIST" ]; then
+            if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+              echo "CDKToolkit exists but S3 bucket is missing (manual deletion drift). Re-bootstrapping..."
+              aws cloudformation delete-stack --stack-name CDKToolkit --region us-east-1
+              aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region us-east-1
+            else
+              echo "CDKToolkit and S3 bucket both exist — bootstrap will be a no-op."
+            fi
+          fi
+
+          npx cdk bootstrap aws://${{ secrets.AWS_ACCOUNT_ID }}/us-east-1
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Step 1: Deploy VPC + ECR
+      # These must exist before we can push the Docker image.
+      - name: Deploy VPC and ECR stacks
+        working-directory: infra/cdk
+        run: npx cdk deploy IotDashboardVpc IotDashboardEcr --require-approval never
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Step 2: Build and push backend Docker image
+      # IMPORTANT: must use --platform linux/amd64.
+      # GitHub Actions runners and Mac Apple Silicon (arm64) both produce arm64
+      # images by default. AWS Fargate uses x86_64 — deploying an arm64 image
+      # causes the ECS circuit breaker to fire with:
+      # "image Manifest does not contain descriptor matching platform 'linux/amd64'"
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: iot-dashboard-backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -t $REGISTRY/$REPOSITORY:$IMAGE_TAG \
+            -t $REGISTRY/$REPOSITORY:latest \
+            ./backend
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$REPOSITORY:latest
+
+      # Step 3: Deploy ECS stack
+      # The image now exists in ECR so the ECS circuit breaker won't fire.
+      #
+      # Also handles stacks stuck in ROLLBACK_COMPLETE (from a prior failed
+      # deploy where ECS tried to start tasks before the image was pushed).
+      # CloudFormation won't let you update a ROLLBACK_COMPLETE stack — it must
+      # be deleted first.
+      - name: Clear any failed ECS stack
+        run: |
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardEcs --region us-east-1 \
+            --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+          echo "IotDashboardEcs status: $STATUS"
+          if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "CREATE_FAILED" ]; then
+            echo "Deleting failed stack before redeployment..."
+            aws cloudformation delete-stack --stack-name IotDashboardEcs --region us-east-1
+            aws cloudformation wait stack-delete-complete --stack-name IotDashboardEcs --region us-east-1
+            echo "Stack deleted."
+          fi
+
+      - name: Deploy ECS stack
+        working-directory: infra/cdk
+        run: npx cdk deploy IotDashboardEcs --require-approval never
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Step 4: Deploy Frontend infrastructure
+      - name: Deploy Frontend stack
+        working-directory: infra/cdk
+        run: npx cdk deploy IotDashboardFrontend --require-approval never
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Step 5: Build and deploy frontend
+      # S3 bucket name and CloudFront distribution ID are read from CloudFormation
+      # outputs — no hardcoded variables needed.
+      - name: Set up Node.js for frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install and build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Read CDK stack outputs
+        id: outputs
+        run: |
+          S3_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" \
+            --output text)
+          CF_ID=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+            --output text)
+          CF_URL=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardFrontend --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" \
+            --output text)
+          echo "s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          echo "cf_id=$CF_ID" >> $GITHUB_OUTPUT
+          echo "cf_url=$CF_URL" >> $GITHUB_OUTPUT
+
+      - name: Sync frontend to S3
+        run: aws s3 sync frontend/dist/ s3://${{ steps.outputs.outputs.s3_bucket }} --delete
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.outputs.outputs.cf_id }} \
+            --paths "/*"
+
+      # Summary
+      - name: Print deployment summary
+        run: |
+          echo "## Deployment complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App URL:** ${{ steps.outputs.outputs.cf_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "CloudFront may take 1-2 minutes to fully propagate on first deploy." >> $GITHUB_STEP_SUMMARY
