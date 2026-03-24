@@ -8,8 +8,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import get_logger
 from app.models.log_entry import LogEntry
 from app.models.machine import Machine
+
+logger = get_logger(__name__)
 
 REQUIRED_COLUMNS = {"timestamp", "machine_id", "temperature", "vibration", "status"}
 VALID_STATUSES = {"OPERATIONAL", "WARNING", "ERROR"}
@@ -71,6 +74,7 @@ async def _upsert_machines(machine_ids: set[str], db: AsyncSession) -> None:
 async def ingest_csv(content: bytes, db: AsyncSession) -> dict:
     parsed_rows = _parse_csv(content)
     machine_ids = {r["machine_id"] for r in parsed_rows}
+    logger.info("Ingestion is starting, parsed %d rows across %d machines", len(parsed_rows), len(machine_ids))
     await _upsert_machines(machine_ids, db)
 
     inserted = 0
@@ -89,6 +93,7 @@ async def ingest_csv(content: bytes, db: AsyncSession) -> dict:
         inserted += 1
 
     await db.commit()
+    logger.info("Ingestion is complete, inserted %d rows, skipped %d duplicates", inserted, skipped)
     return {
         "inserted": inserted,
         "skipped": skipped,
@@ -104,11 +109,13 @@ async def ingest_csv_stream(
     try:
         parsed_rows = _parse_csv(content)
     except IngestionError as exc:
+        logger.error("CSV parsing failed, error is %s", exc)
         yield {"type": "error", "message": str(exc)}
         return
 
     total = len(parsed_rows)
     machine_ids = {r["machine_id"] for r in parsed_rows}
+    logger.info("Streaming ingestion is starting, parsed %d rows across %d machines", total, len(machine_ids))
     await _upsert_machines(machine_ids, db)
 
     yield {"type": "start", "total": total}
@@ -140,6 +147,7 @@ async def ingest_csv_stream(
             }
 
     await db.commit()
+    logger.info("Streaming ingestion is complete, inserted %d rows, skipped %d duplicates", inserted, skipped)
     yield {
         "type": "complete",
         "inserted": inserted,

@@ -22,6 +22,9 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from agent.llm_rerouter import get_llm
 from agent.prompts import INTENT_GUARD_PROMPT
 from agent.schemas import AnalysisOutput
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ── Intent guard ─────────────────────────────────────────────────────────────
 
@@ -45,8 +48,11 @@ async def classify_intent(user_message: str) -> bool:
             SystemMessage(content=INTENT_GUARD_PROMPT),
             HumanMessage(content=user_message),
         ])
-        return response.content.strip().upper() == "ON_TOPIC"
-    except Exception:
+        result = response.content.strip().upper() == "ON_TOPIC"
+        logger.info("Intent classification is complete, result is %s", "on topic" if result else "off topic")
+        return result
+    except Exception as exc:
+        logger.warning("Intent classification failed, failing open, error is %s", exc)
         return True
 
 
@@ -127,6 +133,7 @@ async def stream_chat(
         history_messages_key="history",
     )
 
+    logger.info("Starting chat stream, session_id is %s", session_id)
     full_response = ""
     try:
         async for chunk in runnable.astream(
@@ -145,9 +152,11 @@ async def stream_chat(
                 full_response += token
                 yield {"type": "thinking_token", "content": token}
 
+        logger.info("Chat stream is complete, session_id is %s, response length is %d characters", session_id, len(full_response))
         yield {"type": "done", "message": full_response}
 
     except Exception as exc:
+        logger.error("Chat stream failed, session_id is %s, error is %s", session_id, exc)
         yield {"type": "error", "message": str(exc)}
 
 

@@ -9,9 +9,12 @@ from agent.schemas import AnalysisOutput
 from app.api.deps import get_db
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.logger import get_logger
 from app.models.analysis_result import AnalysisResult
 from app.schemas.analysis import AnalysisResultOut, AnalysisRunResponse
 from app.services.summarizer import get_machine_summaries
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
@@ -37,6 +40,7 @@ def _serialize(record: AnalysisResult) -> AnalysisResultOut:
 
 async def _run_analysis_task(job_id: int) -> None:
     """Background task: runs entirely in its own DB session."""
+    logger.info("Analysis background task is starting, job_id is %d", job_id)
     async with AsyncSessionLocal() as db:
         record = await db.get(AnalysisResult, job_id)
         record.status = "running"
@@ -47,9 +51,11 @@ async def _run_analysis_task(job_id: int) -> None:
             if not summaries:
                 raise ValueError("No log data found. Ingest a CSV before running analysis.")
 
+            logger.info("Running analysis on %d machines, job_id is %d", len(summaries), job_id)
             state = await run_analysis(summaries)
 
             if state["error_state"]:
+                logger.error("Analysis job %d failed, error is %s", job_id, state["error_state"])
                 record.status = "error"
                 record.error_message = state["error_state"]
             else:
@@ -63,11 +69,13 @@ async def _run_analysis_task(job_id: int) -> None:
                     else settings.bedrock_model_id
                 )
                 record.provider = settings.llm_provider
+                logger.info("Analysis job %d is complete, provider is %s, retries were %d", job_id, settings.llm_provider, state["retry_count"])
 
             record.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
         except Exception as exc:
+            logger.exception("Analysis background task raised an unexpected error, job_id is %d, error is %s", job_id, exc)
             record.status = "error"
             record.error_message = str(exc)
             record.completed_at = datetime.now(timezone.utc)
