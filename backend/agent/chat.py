@@ -1,8 +1,7 @@
 """
 Conversational analyst agent with session memory and token streaming.
 
-Session memory: in-memory dict of session_id → InMemoryChatMessageHistory.
-Resets on server restart — acceptable for this scope.
+Session memory: in-memory dict of session_id → InMemoryChatMessageHistory.Resets on server restart
 
 Streaming: uses ChatModel.astream() to yield tokens as they arrive.
 SSE event types:
@@ -17,8 +16,8 @@ from typing import Any
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from agent.llm_rerouter import get_llm
 from agent.prompts import INTENT_GUARD_PROMPT
@@ -51,7 +50,7 @@ async def classify_intent(user_message: str) -> bool:
         return True
 
 
-# ── Session store ────────────────────────────────────────────────────────────
+# Session store
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
 
@@ -62,7 +61,7 @@ def get_or_create_session(session_id: str) -> InMemoryChatMessageHistory:
     return _sessions[session_id]
 
 
-# ── System prompt ────────────────────────────────────────────────────────────
+# System prompt
 
 def _build_system_prompt(
     analysis: AnalysisOutput | None,
@@ -99,7 +98,7 @@ def _build_system_prompt(
     return prompt
 
 
-# ── Streaming chat ────────────────────────────────────────────────────────────
+# Streaming chat
 
 async def stream_chat(
     session_id: str,
@@ -152,7 +151,7 @@ async def stream_chat(
         yield {"type": "error", "message": str(exc)}
 
 
-# ── Narrate analysis results ──────────────────────────────────────────────────
+# Narrate analysis results
 
 async def narrate_analysis(
     session_id: str,
