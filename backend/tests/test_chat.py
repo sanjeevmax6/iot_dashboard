@@ -11,6 +11,37 @@ from agent.chat import (
 )
 from agent.schemas import AnalysisOutput, MachineRisk
 
+MOCK_SUMMARIES = [
+    {
+        "machine_id": "MCH-01",
+        "total_readings": 100,
+        "error_count": 12,
+        "warning_count": 5,
+        "operational_count": 83,
+        "error_rate": 0.12,
+        "warning_rate": 0.05,
+        "avg_temperature": 72.3,
+        "max_temperature": 95.1,
+        "avg_vibration": 0.4200,
+        "max_vibration": 0.8900,
+        "last_seen": "2024-01-01T00:00:00",
+    },
+    {
+        "machine_id": "MCH-02",
+        "total_readings": 80,
+        "error_count": 3,
+        "warning_count": 10,
+        "operational_count": 67,
+        "error_rate": 0.0375,
+        "warning_rate": 0.125,
+        "avg_temperature": 65.0,
+        "max_temperature": 80.0,
+        "avg_vibration": 0.3100,
+        "max_vibration": 0.6200,
+        "last_seen": "2024-01-01T01:00:00",
+    },
+]
+
 MOCK_ANALYSIS = AnalysisOutput(
     top_at_risk_machines=[
         MachineRisk(
@@ -81,6 +112,19 @@ def test_build_system_prompt_with_analysis_includes_fleet_summary():
 def test_build_system_prompt_with_analysis_warns_not_to_fabricate():
     prompt = _build_system_prompt(MOCK_ANALYSIS)
     assert "Do not fabricate" in prompt
+
+
+def test_build_system_prompt_with_summaries_includes_sensor_data():
+    prompt = _build_system_prompt(MOCK_ANALYSIS, MOCK_SUMMARIES)
+    assert "72.3" in prompt
+    assert "95.1" in prompt
+    assert "Raw sensor data" in prompt
+    assert "MCH-02" in prompt
+
+
+def test_build_system_prompt_without_summaries_omits_sensor_section():
+    prompt = _build_system_prompt(MOCK_ANALYSIS)
+    assert "Raw sensor data" not in prompt
 
 
 # ── stream_chat ─────────────────────────────────────────────────────────────
