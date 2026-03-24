@@ -18,6 +18,7 @@ from typing import Any
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from agent.llm_rerouter import get_llm
 from agent.prompts import INTENT_GUARD_PROMPT
@@ -63,7 +64,10 @@ def get_or_create_session(session_id: str) -> InMemoryChatMessageHistory:
 
 # ── System prompt ────────────────────────────────────────────────────────────
 
-def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
+def _build_system_prompt(
+    analysis: AnalysisOutput | None,
+    summaries: list[dict] | None = None,
+) -> str:
     base = (
         "You are an industrial fleet analyst. "
         "You help maintenance teams understand machine health, diagnose issues, "
@@ -80,7 +84,7 @@ def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
         f"- {m.machine_id}: {m.risk_level} risk (score {m.risk_score:.2f}) — {m.reason}"
         for m in analysis.top_at_risk_machines
     )
-    return (
+    prompt = (
         f"{base}\n\n"
         f"Latest fleet analysis results:\n{machines_summary}\n\n"
         f"Fleet summary: {analysis.fleet_summary}\n\n"
@@ -89,6 +93,11 @@ def _build_system_prompt(analysis: AnalysisOutput | None) -> str:
         "Do not fabricate machine IDs or metrics not present above."
     )
 
+    if summaries:
+        prompt += f"\n\nRaw sensor data (all machines):\n{json.dumps(summaries, indent=2)}"
+
+    return prompt
+
 
 # ── Streaming chat ────────────────────────────────────────────────────────────
 
@@ -96,15 +105,13 @@ async def stream_chat(
     session_id: str,
     user_message: str,
     analysis: AnalysisOutput | None,
+    summaries: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     history = get_or_create_session(session_id)
     llm = get_llm()
 
-    system_prompt = _build_system_prompt(analysis)
+    system_prompt = _build_system_prompt(analysis, summaries)
 
-    # Build the runnable: system message is injected fresh each call so it
-    # always reflects the latest analysis; history carries the conversation.
-    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
@@ -150,6 +157,7 @@ async def stream_chat(
 async def narrate_analysis(
     session_id: str,
     analysis: AnalysisOutput,
+    summaries: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """
     Called after run_analysis() completes. Asks the LLM to narrate the
@@ -168,5 +176,5 @@ async def narrate_analysis(
         "Be direct — one paragraph per machine, no bullet lists."
     )
 
-    async for event in stream_chat(session_id, prompt, analysis):
+    async for event in stream_chat(session_id, prompt, analysis, summaries):
         yield event

@@ -12,6 +12,7 @@ from agent.schemas import AnalysisOutput
 from app.api.deps import get_db
 from app.core.config import settings
 from app.models.analysis_result import AnalysisResult
+from app.services.summarizer import get_machine_summaries
 
 router = APIRouter(prefix="/analysis", tags=["chat"])
 
@@ -32,8 +33,10 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
         .order_by(AnalysisResult.completed_at.desc())
     )
     analysis: AnalysisOutput | None = None
+    summaries: list[dict] = []
     if record and record.result_json:
         analysis = AnalysisOutput.model_validate_json(record.result_json)
+        summaries = await get_machine_summaries(db)
 
     async def generate():
         if body.trigger_analysis:
@@ -42,8 +45,8 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
             from app.services.summarizer import get_machine_summaries
 
             async with AsyncSessionLocal() as analysis_db:
-                summaries = await get_machine_summaries(analysis_db)
-                if not summaries:
+                summaries_fresh = await get_machine_summaries(analysis_db)
+                if not summaries_fresh:
                     yield f"data: {json.dumps({'type': 'error', 'message': 'No log data found. Ingest a CSV first.'})}\n\n"
                     return
 
@@ -56,7 +59,7 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
                     top_n = None
                 else:
                     top_n = body.requested_count
-                state = await run_analysis(summaries, top_n=top_n)
+                state = await run_analysis(summaries_fresh, top_n=top_n)
 
                 if state["error_state"]:
                     yield f"data: {json.dumps({'type': 'error', 'message': state['error_state']})}\n\n"
@@ -84,13 +87,13 @@ async def chat_stream(body: ChatRequest, db: AsyncSession = Depends(get_db)):
                 analysis_db.add(db_record)
                 await analysis_db.commit()
 
-            async for event in narrate_analysis(body.session_id, analysis):
+            async for event in narrate_analysis(body.session_id, analysis, summaries_fresh):
                 yield f"data: {json.dumps(event)}\n\n"
         else:
             if not await classify_intent(body.message):
                 yield f"data: {json.dumps({'type': 'done', 'message': REFUSAL_MESSAGE})}\n\n"
                 return
-            async for event in stream_chat(body.session_id, body.message, analysis):
+            async for event in stream_chat(body.session_id, body.message, analysis, summaries):
                 yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
