@@ -274,11 +274,7 @@ iot_dashboard/
 
 ## Troubleshooting
 
-**1. ECS Circuit Breaker triggered on deploy**
-**Symptom:** `ECS Deployment Circuit Breaker was triggered`
-**Fix:** `deploy.yml` handles this automatically (deploys ECR first, builds with `--platform linux/amd64`, detects `ROLLBACK_COMPLETE` stacks). If deploying manually: deploy ECR → push image → deploy ECS.
-
-**2. CDK bootstrap fails — missing S3 bucket**
+**1. CDK bootstrap fails — missing S3 bucket**
 **Symptom:** `No bucket named 'cdk-hnb659fds-assets-ACCOUNT-REGION'`
 **Cause:** CDKToolkit stack exists but its S3 bucket was deleted (stack drift). `deploy.yml` handles this automatically.
 ```bash
@@ -287,27 +283,19 @@ aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region u
 npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
 ```
 
-**3. Docker image platform mismatch**
+**2. Docker image platform mismatch**
 **Symptom:** `image Manifest does not contain descriptor matching platform 'linux/amd64'`
 **Fix:** Built on Apple Silicon without a target platform flag. Always use:
 ```bash
 docker build --platform linux/amd64 -t my-image ./backend
 ```
 
-**4. Bedrock model access denied**
+**3. Bedrock model access denied**
 **Symptom:** `AccessDeniedException: not authorized to perform bedrock:InvokeModel`
 - Anthropic models require enabling in **AWS Console → Bedrock → Model access**. Nova (default) does not.
 - Streaming chat requires `bedrock:InvokeModelWithResponseStream` — both actions are granted in `ecs-stack.ts`.
 
-**5. Bedrock tool description validation error**
-**Symptom:** `Invalid length for parameter toolConfig.tools[0].toolSpec.description, value: 0`
-**Fix:** Nova requires non-empty descriptions on all Pydantic fields and class docstrings. Already applied in `agent/schemas.py`.
-
-**6. Chat streaming produces garbled output**
-**Symptom:** Chat tokens appear as `[object Object]`
-**Fix:** Nova returns `chunk.content` as a list of content blocks, not a plain string. Handled in `agent/chat.py` via `isinstance(raw, list)` check.
-
-**7. Stack stuck in ROLLBACK_COMPLETE**
+**4. Stack stuck in ROLLBACK_COMPLETE**
 **Symptom:** `Stack is in ROLLBACK_COMPLETE state and cannot be updated`
 **Fix:** `deploy.yml` handles this automatically. Manually:
 ```bash
@@ -315,7 +303,7 @@ aws cloudformation delete-stack --stack-name IotDashboardEcs --region us-east-1
 aws cloudformation wait stack-delete-complete --stack-name IotDashboardEcs --region us-east-1
 ```
 
-**8. Frontend shows AccessDenied XML**
+**5. Frontend shows AccessDenied XML**
 **Symptom:** CloudFront URL returns `<Error><Code>AccessDenied</Code>` XML
 **Cause:** S3 bucket is empty — frontend was never synced.
 ```bash
