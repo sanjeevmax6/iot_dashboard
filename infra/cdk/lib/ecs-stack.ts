@@ -4,7 +4,6 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 
@@ -21,15 +20,6 @@ export class EcsStack extends cdk.Stack {
     super(scope, id, props);
     const { vpc, repository } = props;
 
-    // Secrets - only for first deploy, creates an empty secret shell in AWS. I populate the values separately after first deploy
-    // Placeholder — populate the secret value in AWS console or via CLI after
-    // first deploy: aws secretsmanager put-secret-value --secret-id
-    // iot-dashboard/openai-api-key --secret-string "sk-..."
-    const openAiSecret = new secretsmanager.Secret(this, "OpenAiApiKey", {
-      secretName: "iot-dashboard/openai-api-key",
-      description: "OpenAI API key for IoT Dashboard (used when LLM_PROVIDER=openai)",
-    });
-
     // Logging (Essential especailly when an app is like this is split into microservices)
     const logGroup = new logs.LogGroup(this, "BackendLogs", {
       logGroupName: "/iot-dashboard/backend",
@@ -43,6 +33,7 @@ export class EcsStack extends cdk.Stack {
       clusterName: "iot-dashboard",
       containerInsightsV2: ecs.ContainerInsights.ENABLED,
     });
+    (cluster.node.defaultChild as cdk.CfnResource).applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
 
     // IAM roles
     // Execution role: used by ECS control plane to pull the image + read secrets
@@ -54,8 +45,6 @@ export class EcsStack extends cdk.Stack {
         ),
       ],
     });
-    openAiSecret.grantRead(executionRole);
-
     // Task role: runtime permissions for the application process 
     // A good way to reduce prompt injection too
     const taskRole = new iam.Role(this, "TaskRole", {
@@ -97,10 +86,6 @@ export class EcsStack extends cdk.Stack {
         // — CORS is effectively a no-op in prod, but keeping for local-dev fallback
         CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]',
       },
-      secrets: {
-        // Injected at runtime — value never baked into the image
-        OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openAiSecret),
-      },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: "backend",
         logGroup,
@@ -112,6 +97,7 @@ export class EcsStack extends cdk.Stack {
       vpc,
       internetFacing: true,
     });
+    (alb.node.defaultChild as cdk.CfnResource).applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
 
     const listener = alb.addListener("HttpListener", {
       port: 80,
