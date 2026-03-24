@@ -13,7 +13,7 @@ on:
 
 jobs:
   destroy:
-    name: Full Stack Teardown
+    name: End to End Teardown
     runs-on: ubuntu-latest
 
     steps:
@@ -64,6 +64,69 @@ jobs:
         run: npx cdk destroy --all --force
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Deregister ECS task definitions
+      # CloudFormation cannot delete task definitions (AWS platform limit) — they
+      # must be deregistered explicitly to avoid accumulating across deploy cycles.
+      - name: Deregister ECS task definitions
+        run: |
+          TASK_DEFS=$(aws ecs list-task-definitions \
+            --region us-east-1 \
+            --status ACTIVE \
+            --query 'taskDefinitionArns[]' --output text 2>/dev/null || echo "")
+          if [ -n "$TASK_DEFS" ]; then
+            for ARN in $TASK_DEFS; do
+              echo "Deregistering $ARN"
+              aws ecs deregister-task-definition --task-definition "$ARN" --region us-east-1 > /dev/null
+            done
+            echo "All task definition revisions deregistered."
+          else
+            echo "No active task definitions found — skipping."
+          fi
+
+      # Delete Container Insights log group
+      # containerInsightsV2 auto-creates this log group outside of CloudFormation,
+      # so CDK destroy does not touch it.
+      - name: Delete Container Insights log group
+        run: |
+          LOG_GROUP="/aws/ecs/containerinsights/iot-dashboard/performance"
+          EXISTS=$(aws logs describe-log-groups \
+            --log-group-name-prefix "$LOG_GROUP" \
+            --region us-east-1 \
+            --query 'logGroups[0].logGroupName' \
+            --output text 2>/dev/null || echo "")
+          if [ "$EXISTS" = "$LOG_GROUP" ]; then
+            echo "Deleting log group: $LOG_GROUP"
+            aws logs delete-log-group --log-group-name "$LOG_GROUP" --region us-east-1
+          else
+            echo "Log group not found — skipping."
+          fi
+
+      # Delete CDKToolkit bootstrap stack and its S3 bucket
+      # cdk destroy --all only destroys app stacks — the bootstrap stack and its
+      # staging S3 bucket survive unless explicitly removed.
+      - name: Destroy CDKToolkit bootstrap stack
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="cdk-hnb659fds-assets-${ACCOUNT_ID}-us-east-1"
+
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "Emptying CDK bootstrap bucket: $BUCKET"
+            aws s3 rm s3://$BUCKET --recursive
+          fi
+
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name CDKToolkit --region us-east-1 \
+            --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+          if [ "$STATUS" != "DOES_NOT_EXIST" ]; then
+            echo "Deleting CDKToolkit stack..."
+            aws cloudformation delete-stack --stack-name CDKToolkit --region us-east-1
+            aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region us-east-1
+            echo "CDKToolkit deleted."
+          else
+            echo "CDKToolkit already gone — skipping."
+          fi
 
       # Force-delete any stuck stacks
       # Stacks in ROLLBACK_COMPLETE or DELETE_FAILED can't be handled by CDK.
