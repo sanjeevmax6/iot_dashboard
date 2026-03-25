@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 
 export interface ChatMessage {
@@ -22,10 +22,29 @@ function parseAnalysisIntent(text: string): number | null {
   return null;
 }
 
+const STORAGE_KEY = (sessionId: string) => `chat_history_${sessionId}`;
+
+function loadMessages(sessionId: string): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY(sessionId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatMessage[];
+    // Never restore a message that was mid-stream when the page closed
+    return parsed.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+  } catch {
+    return [];
+  }
+}
+
 export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages(sessionId));
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    localStorage.setItem(STORAGE_KEY(sessionId), JSON.stringify(messages));
+  }, [messages, sessionId]);
 
   const sendMessage = useCallback(
     async (text: string, triggerAnalysis = false) => {
@@ -107,10 +126,13 @@ export function useChat(sessionId: string, onAnalysisComplete?: () => void) {
               );
               if (triggerAnalysis) onAnalysisComplete?.();
             } else if (event.type === "error") {
+              const errorContent = triggerAnalysis
+                ? "I tried extracting the fleet data, but the analysis didn't complete successfully. Please try again."
+                : `Error: ${event.message as string}`;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === aiId
-                    ? { ...m, content: `Error: ${event.message as string}`, isStreaming: false }
+                    ? { ...m, content: errorContent, isStreaming: false }
                     : m
                 )
               );
