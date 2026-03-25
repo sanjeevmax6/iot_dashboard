@@ -2,6 +2,8 @@
 
 > An application that ingests manufacturing sensor data, runs an AI-powered risk analysis workflow, and surfaces maintenance predictions on a live dashboard.
 
+**Live demo:** [https://d2edhitdb54iy.cloudfront.net](https://d2edhitdb54iy.cloudfront.net)
+
 ---
 
 ## Table of Contents
