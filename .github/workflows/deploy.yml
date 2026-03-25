@@ -69,9 +69,30 @@ jobs:
             echo "Drifted stack deleted. Proceeding with fresh bootstrap."
 
           elif [ "$STACK_STATUS" = "DOES_NOT_EXIST" ] && [ "$BUCKET_EXISTS" = "true" ]; then
-            # Case 3: orphaned bucket from a previous destroy — clean it up first
+            # Case 3: orphaned bucket from a previous destroy — clean it up first.
+            # Must delete all versions and delete markers before the bucket itself,
+            # because CDK enables versioning on the staging bucket. aws s3 rm only
+            # removes current versions; old versions and delete markers block DeleteBucket
+            # with BucketNotEmpty even after rm --recursive.
             echo "Orphaned CDK staging bucket found (no CDKToolkit stack). Emptying and deleting..."
             aws s3 rm s3://$BUCKET --recursive
+
+            # Delete all non-current object versions
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query 'Versions[].{Key:Key,VersionId:VersionId}' \
+              --output text 2>/dev/null | while read KEY VER; do
+              [ -z "$KEY" ] && continue
+              aws s3api delete-object --bucket "$BUCKET" --key "$KEY" --version-id "$VER" > /dev/null
+            done
+
+            # Delete all delete markers
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
+              --output text 2>/dev/null | while read KEY VER; do
+              [ -z "$KEY" ] && continue
+              aws s3api delete-object --bucket "$BUCKET" --key "$KEY" --version-id "$VER" > /dev/null
+            done
+
             aws s3api delete-bucket --bucket "$BUCKET" --region us-east-1
             echo "Orphaned bucket deleted. Proceeding with fresh bootstrap."
 
