@@ -21,9 +21,9 @@
 
 1. **Ingests** manufacturing floor sensor logs (temperature, vibration, status) from a CSV upload
 2. **Runs** an LLM-powered risk analysis workflow (LangGraph, AWS Bedrock) to identify the top at-risk machines
-3. **Validates** AI output with a two-stage schema + logic contradiction checker — retries automatically on failure
+3. **Validates** AI output with a two-stage schema. Logic contradiction checker + Retrying automatically on failure
 4. **Displays** raw logs, AI-generated machine health cards, and sensor time-series charts on a live dashboard
-5. **Answers** follow-up questions about fleet health via an SSE-streaming chat interface
+5. **Answers** follow-up questions in a chat interactive mode with session memory about machines health
 
 ---
 
@@ -185,7 +185,7 @@ When you click **Analyze Fleet Health**, this pipeline runs:
 
 ### 2. Intent Guard
 
-Before every chat message is processed, a lightweight classifier call checks whether the message is on-topic (fleet/machine domain). Off-topic messages (weather, general knowledge, etc.) are refused with a canned message. This uses the same LLM but without tool calling — just a simple `ON_TOPIC` / `OFF_TOPIC` classification.
+Before every chat message is processed, a lightweight classifier call checks whether the message is on-topic (fleet/machine domain). Off-topic messages (weather, general knowledge, etc.) are refused with a canned message. This uses the same LLM but without tool calling, just a simple `ON_TOPIC` or `OFF_TOPIC` classification.
 
 ### 3. Streaming Chat (SSE)
 
@@ -196,8 +196,8 @@ The chat interface uses Server-Sent Events for token streaming. Session memory (
 The `LLM_PROVIDER` env var switches between OpenAI (local dev) and Bedrock (production) at startup. Both providers go through the same LangGraph graph — only the underlying `ChatModel` instance changes.
 
 ```
-LLM_PROVIDER=openai   → ChatOpenAI  (gpt-4o-mini by default)
-LLM_PROVIDER=bedrock  → ChatBedrock (us.amazon.nova-lite-v1:0 by default)
+LLM_PROVIDER=openai - ChatOpenAI  (gpt-4o-mini by default)
+LLM_PROVIDER=bedrock - ChatBedrock (us.amazon.nova-lite-v1:0 by default)
 ```
 
 To use Claude on Bedrock instead of Nova, enable model access in the Bedrock console and set:
