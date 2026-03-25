@@ -4,9 +4,11 @@ name: CD
 # Assumes infrastructure already exists (run deploy.yml first).
 
 on:
-  pull_request:
-    branches: [main]
-    types: [closed]
+  workflow_dispatch: # Manual trigger for testing
+  # Uncomment once infrastructure is deployed:
+  # pull_request:
+  #   branches: [main]
+  #   types: [closed]
 
 jobs:
   backend:
