@@ -7,13 +7,14 @@
 ## Table of Contents
 
 1. [What It Does](#what-it-does)
-2. [Tech Stack](#tech-stack)
-3. [AWS Deployment via GitHub Actions](#aws-deployment-via-github-actions)
-4. [Local Setup](#local-setup)
-5. [Architecture](#architecture)
-6. [How the AI Works](#how-the-ai-works)
-7. [File Structure](#file-structure)
-8. [Troubleshooting](#troubleshooting)
+2. [Usage](#usage)
+3. [Tech Stack](#tech-stack)
+4. [AWS Deployment via GitHub Actions](#aws-deployment-via-github-actions)
+5. [Local Setup](#local-setup)
+6. [Architecture](#architecture)
+7. [How the AI Works](#how-the-ai-works)
+8. [File Structure](#file-structure)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,6 +25,32 @@
 3. **Validates** AI output with a two-stage schema. Logic contradiction checker + Retrying automatically on failure
 4. **Displays** raw logs, AI-generated machine health cards, and sensor time-series charts on a live dashboard
 5. **Answers** follow-up questions in a chat interactive mode with session memory about machines health
+
+---
+
+## Usage
+
+### Step 1 — Ingest your sensor data
+
+Click **Ingest CSV** in the dashboard and upload a CSV file of machine sensor logs.
+A sample file is included at `assets/manufacturing_floor_logs_1000.csv`.
+
+### Step 2 — Run the AI analysis
+
+Click **Analyze Fleet Health**. The AI workflow scores every machine by risk level, validates its own output, and presents a ranked list of at-risk machines with reasons and recommended actions.
+
+### Step 3 — Ask follow-up questions
+
+Use the chat panel to dig deeper. Some example questions to try:
+
+> **Can I get top 5 at risk machines?**
+> Triggers a fresh analysis and returns the 5 highest-risk machines ranked by score.
+
+> **Explain the reasoning behind the at-risk machines referencing temperature, vibration, and risk score.**
+> The assistant references the structured analysis results to explain what sensor anomalies are driving each machine's risk classification.
+
+> **What is the color of the sky?**
+> Off-topic questions are refused — the assistant only answers questions about your fleet and machine data.
 
 ---
 
