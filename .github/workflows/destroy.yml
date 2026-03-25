@@ -38,12 +38,33 @@ jobs:
         working-directory: infra/cdk
         run: npm ci
 
-      # Empty S3 bucket
+      # Clean up stuck stacks FIRST
+      # Stacks in ROLLBACK_COMPLETE or DELETE_FAILED block cdk destroy --all.
+      # continue-on-error: one stuck stack shouldn't prevent others from being cleaned up.
+      - name: Clean up stuck stacks
+        continue-on-error: true
+        run: |
+          for STACK in IotDashboardFrontend IotDashboardEcs IotDashboardEcr IotDashboardVpc; do
+            STATUS=$(aws cloudformation describe-stacks \
+              --stack-name $STACK --region us-east-1 \
+              --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+            echo "$STACK: $STATUS"
+            if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+              echo "Force-deleting stuck stack: $STACK"
+              aws cloudformation delete-stack --stack-name $STACK --region us-east-1
+              aws cloudformation wait stack-delete-complete --stack-name $STACK --region us-east-1
+              echo "$STACK deleted."
+            fi
+          done
+
+      # Empty S3 bucket before CDK destroy
       # CDK sets autoDeleteObjects: true which uses a Lambda to empty the bucket
       # on destroy. However if the Lambda itself fails (e.g. a prior partial
       # destroy), CloudFormation leaves the bucket and the whole destroy fails.
       # Pre-emptively emptying it here makes destroy reliable.
+      # continue-on-error: if the frontend stack is already gone, this is a no-op.
       - name: Empty S3 bucket
+        continue-on-error: true
         run: |
           BUCKET=$(aws cloudformation describe-stacks \
             --stack-name IotDashboardFrontend --region us-east-1 \
@@ -105,7 +126,11 @@ jobs:
       # Delete CDKToolkit bootstrap stack and its S3 bucket
       # cdk destroy --all only destroys app stacks — the bootstrap stack and its
       # staging S3 bucket survive unless explicitly removed.
+      # Deletes all object versions and delete markers before the bucket itself,
+      # because CDK enables versioning — aws s3 rm only removes current versions.
+      # continue-on-error: cleanup step, shouldn't fail the whole workflow.
       - name: Destroy CDKToolkit bootstrap stack
+        continue-on-error: true
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           BUCKET="cdk-hnb659fds-assets-${ACCOUNT_ID}-us-east-1"
@@ -113,6 +138,23 @@ jobs:
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             echo "Emptying CDK bootstrap bucket: $BUCKET"
             aws s3 rm s3://$BUCKET --recursive
+
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query 'Versions[].{Key:Key,VersionId:VersionId}' \
+              --output text 2>/dev/null | while read KEY VER; do
+              [ -z "$KEY" ] && continue
+              aws s3api delete-object --bucket "$BUCKET" --key "$KEY" --version-id "$VER" > /dev/null
+            done
+
+            aws s3api list-object-versions --bucket "$BUCKET" \
+              --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
+              --output text 2>/dev/null | while read KEY VER; do
+              [ -z "$KEY" ] && continue
+              aws s3api delete-object --bucket "$BUCKET" --key "$KEY" --version-id "$VER" > /dev/null
+            done
+
+            aws s3api delete-bucket --bucket "$BUCKET" --region us-east-1
+            echo "CDK bootstrap bucket deleted."
           fi
 
           STATUS=$(aws cloudformation describe-stacks \
@@ -127,24 +169,6 @@ jobs:
           else
             echo "CDKToolkit already gone — skipping."
           fi
-
-      # Force-delete any stuck stacks
-      # Stacks in ROLLBACK_COMPLETE or DELETE_FAILED can't be handled by CDK.
-      # This cleans up any that were left over from previous failed deploys.
-      - name: Clean up stuck stacks
-        run: |
-          for STACK in IotDashboardFrontend IotDashboardEcs IotDashboardEcr IotDashboardVpc; do
-            STATUS=$(aws cloudformation describe-stacks \
-              --stack-name $STACK --region us-east-1 \
-              --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-            echo "$STACK: $STATUS"
-            if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
-              echo "Force-deleting stuck stack: $STACK"
-              aws cloudformation delete-stack --stack-name $STACK --region us-east-1
-              aws cloudformation wait stack-delete-complete --stack-name $STACK --region us-east-1
-              echo "$STACK deleted."
-            fi
-          done
 
       - name: Teardown summary
         run: |

@@ -132,5 +132,10 @@ export class EcsStack extends cdk.Stack {
       value: `http://${alb.loadBalancerDnsName}`,
       description: "ALB URL (internal — access the app via the CloudFront URL)",
     });
+
+    new cdk.CfnOutput(this, "EcsServiceName", {
+      value: service.serviceName,
+      description: "ECS Fargate service name — used by cd.yml to trigger redeployments",
+    });
   }
 }
