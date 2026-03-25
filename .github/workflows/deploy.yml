@@ -40,11 +40,14 @@ jobs:
         run: npm ci
 
       # CDK Bootstrap
-      # Handles two edge cases I hit during development:
-      # 1. Fresh account: CDKToolkit stack doesn't exist yet, bootstrap creates it
-      # 2. Drift: CDKToolkit stack exists in CloudFormation but its S3 bucket was
-      #    manually deleted. Bootstrap sees "no changes" and skips recreation.
-      #    Fix was to delete the drifted stack first, then re-bootstrap.
+      # Handles three edge cases:
+      # 1. Fresh account: neither stack nor bucket exists — bootstrap creates both.
+      # 2. Stack exists but bucket was manually deleted (drift) — delete the drifted
+      #    stack first, then re-bootstrap so CloudFormation owns the new bucket.
+      # 3. Bucket exists but stack doesn't (e.g. destroy deleted the stack but left
+      #    the bucket) — empty and delete the orphaned bucket so bootstrap can
+      #    create a new one cleanly. This was the failure mode that caused:
+      #    "Resource AWS::S3::Bucket already exists".
       - name: Bootstrap CDK environment
         working-directory: infra/cdk
         run: |
@@ -55,14 +58,25 @@ jobs:
             --stack-name CDKToolkit --region us-east-1 \
             --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DOES_NOT_EXIST")
 
-          if [ "$STACK_STATUS" != "DOES_NOT_EXIST" ]; then
-            if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-              echo "CDKToolkit exists but S3 bucket is missing (manual deletion drift). Re-bootstrapping..."
-              aws cloudformation delete-stack --stack-name CDKToolkit --region us-east-1
-              aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region us-east-1
-            else
-              echo "CDKToolkit and S3 bucket both exist — bootstrap will be a no-op."
-            fi
+          BUCKET_EXISTS=false
+          aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null && BUCKET_EXISTS=true
+
+          if [ "$STACK_STATUS" != "DOES_NOT_EXIST" ] && [ "$BUCKET_EXISTS" = "false" ]; then
+            # Case 2: stack exists but bucket is gone — delete drifted stack
+            echo "CDKToolkit stack exists but S3 bucket is missing (drift). Deleting stack..."
+            aws cloudformation delete-stack --stack-name CDKToolkit --region us-east-1
+            aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region us-east-1
+            echo "Drifted stack deleted. Proceeding with fresh bootstrap."
+
+          elif [ "$STACK_STATUS" = "DOES_NOT_EXIST" ] && [ "$BUCKET_EXISTS" = "true" ]; then
+            # Case 3: orphaned bucket from a previous destroy — clean it up first
+            echo "Orphaned CDK staging bucket found (no CDKToolkit stack). Emptying and deleting..."
+            aws s3 rm s3://$BUCKET --recursive
+            aws s3api delete-bucket --bucket "$BUCKET" --region us-east-1
+            echo "Orphaned bucket deleted. Proceeding with fresh bootstrap."
+
+          else
+            echo "CDKToolkit and S3 bucket both exist — bootstrap will be a no-op."
           fi
 
           npx cdk bootstrap aws://${{ secrets.AWS_ACCOUNT_ID }}/us-east-1

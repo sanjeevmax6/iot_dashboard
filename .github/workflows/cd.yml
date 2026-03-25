@@ -44,14 +44,21 @@ jobs:
 
       - name: Force ECS redeployment
         run: |
-          SERVICE=$(aws ecs list-services --cluster iot-dashboard --region us-east-1 \
-            --query 'serviceArns[0]' --output text | xargs basename)
+          SERVICE=$(aws cloudformation describe-stacks \
+            --stack-name IotDashboardEcs --region us-east-1 \
+            --query "Stacks[0].Outputs[?OutputKey=='EcsServiceName'].OutputValue" \
+            --output text)
+          if [ -z "$SERVICE" ] || [ "$SERVICE" = "None" ]; then
+            echo "ERROR: Could not read ECS service name from IotDashboardEcs stack outputs."
+            echo "Make sure the stack is deployed and EcsServiceName is exported."
+            exit 1
+          fi
           aws ecs update-service \
             --cluster iot-dashboard \
             --service $SERVICE \
             --force-new-deployment \
             --region us-east-1 > /dev/null
-          echo "ECS deployment is triggered for $SERVICE, waiting for stability"
+          echo "ECS deployment triggered for $SERVICE, waiting for stability..."
           aws ecs wait services-stable \
             --cluster iot-dashboard \
             --services $SERVICE \
